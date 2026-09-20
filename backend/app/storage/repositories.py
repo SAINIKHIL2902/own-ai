@@ -50,6 +50,7 @@ class RawRepository:
         model: str,
         latency_ms: float = 0.0,
         user_id: str = "local_user",
+        provider: str = "local",
     ) -> None:
         now = utc_now()
         with self.manager.get_connection() as conn:
@@ -62,7 +63,15 @@ class RawRepository:
                 (conversation_id, content[:30], now, now),
             )
             cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
-            if "message_id" in cols:
+            if "provider" in cols and "message_id" in cols:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO messages (message_id, id, conversation_id, user_id, role, content, model, provider, latency_ms, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (msg_id, msg_id, conversation_id, user_id, role, content, model, provider, latency_ms, now),
+                )
+            elif "message_id" in cols:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO messages (message_id, id, conversation_id, user_id, role, content, model, latency_ms, created_at)

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     model TEXT NOT NULL,
+    provider TEXT DEFAULT 'local',
     latency_ms REAL DEFAULT 0.0,
     created_at TEXT NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
@@ -151,6 +152,8 @@ class DatabaseManager:
                 conn.execute("UPDATE messages SET id = message_id WHERE id IS NULL")
             if "user_id" not in msg_cols:
                 conn.execute("ALTER TABLE messages ADD COLUMN user_id TEXT DEFAULT 'local_user'")
+            if "provider" not in msg_cols:
+                conn.execute("ALTER TABLE messages ADD COLUMN provider TEXT DEFAULT 'local'")
 
             # Migration: ensure feedback table has feedback_id, id, user_id, feedback_value, and metadata_json
             fb_cols = [r["name"] for r in conn.execute("PRAGMA table_info(feedback)").fetchall()]

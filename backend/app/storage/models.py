@@ -25,6 +25,7 @@ class MessageRecord:
     role: str
     content: str
     model: str
+    provider: str = "local"
     user_id: str = "local_user"
     latency_ms: float = 0.0
     id: Optional[str] = None

@@ -118,7 +118,7 @@ function renderCurrentChat() {
     welcomeContainer.style.display = "none";
     conversationStream.style.display = "flex";
     chat.messages.forEach((msg) => {
-      appendMessageToDOM(msg.role, msg.content, false, msg.id, msg.feedback);
+      appendMessageToDOM(msg.role, msg.content, false, msg.id, msg.feedback, msg.provider, msg.model);
     });
     scrollToBottom();
   }
@@ -238,7 +238,7 @@ window.submitFeedback = async function (msgId, type, btnElement) {
 };
 
 // Append Message to DOM
-function appendMessageToDOM(role, content, animate = true, msgId = null, feedback = null) {
+function appendMessageToDOM(role, content, animate = true, msgId = null, feedback = null, provider = null, model = null) {
   welcomeContainer.style.display = "none";
   conversationStream.style.display = "flex";
 
@@ -272,7 +272,7 @@ function appendMessageToDOM(role, content, animate = true, msgId = null, feedbac
 
   contentWrapper.appendChild(bubble);
 
-  // Actions bar for assistant (Copy + Thumbs Up + Thumbs Down)
+  // Actions bar for assistant (Copy + Thumbs Up + Thumbs Down + Model Attribution)
   if (role === "assistant") {
     const actions = document.createElement("div");
     actions.className = "msg-actions";
@@ -304,6 +304,15 @@ function appendMessageToDOM(role, content, animate = true, msgId = null, feedbac
     thumbsDownBtn.title = "Poor response";
     thumbsDownBtn.addEventListener("click", () => window.submitFeedback(effectiveId, "negative", thumbsDownBtn));
     actions.appendChild(thumbsDownBtn);
+
+    // Model Attribution Badge
+    const effectiveProvider = provider || "local";
+    const badge = document.createElement("span");
+    badge.className = `model-attribution-badge ${effectiveProvider === "gemini" ? "provider-gemini" : "provider-local"}`;
+    const providerName = effectiveProvider === "gemini" ? "Gemini" : "Ollama";
+    const modelTag = model ? ` (${escapeHtml(model)})` : "";
+    badge.innerHTML = `Answered by: <strong>${providerName}</strong>${modelTag}`;
+    actions.appendChild(badge);
 
     contentWrapper.appendChild(actions);
   }
@@ -418,8 +427,17 @@ async function handleSendMessage() {
 
     const data = await response.json();
     const asstMsgId = data.message_id || ("msg_" + Math.random().toString(36).substr(2, 9));
-    chat.messages.push({ id: asstMsgId, role: "assistant", content: data.response });
-    appendMessageToDOM("assistant", data.response, true, asstMsgId);
+    const provider = data.provider || "local";
+    const respModel = data.model || activeModel;
+
+    chat.messages.push({
+      id: asstMsgId,
+      role: "assistant",
+      content: data.response,
+      provider: provider,
+      model: respModel
+    });
+    appendMessageToDOM("assistant", data.response, true, asstMsgId, null, provider, respModel);
     saveStorage();
 
     if (data.model) {

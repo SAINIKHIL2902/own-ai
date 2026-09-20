@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     INTEREST_FEEDBACK_WEIGHT: float = 0.10
     INTEREST_DECAY_RATE: float = 0.95
 
+    # Phase 3 - Gemini API Configuration
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_TIMEOUT: int = 30
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
+
+    # Phase 3 - Model Router Thresholds & Policies
+    LOCAL_MIN_SUITABILITY: float = 0.70
+    LOCAL_MIN_CONFIDENCE: float = 0.65
+    LOCAL_MAX_CONTEXT_CHARS: int = 6000
+    ROUTER_FALLBACK_TO_LOCAL: bool = True
+
     # Load from .env file if present
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

@@ -21,6 +21,7 @@ from app.ollama.client import (
     OllamaConnectionError,
     OllamaModelNotFoundError,
 )
+from app.llm.gemini_client import GeminiAuthError, GeminiConnectionError, GeminiError
 from app.ollama.models import ChatRequest, ChatResponse, HealthResponse, ModelsResponse
 from app.storage.repositories import profile_repo, raw_repo
 
@@ -63,7 +64,20 @@ if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 ollama_client = OllamaClient()
-chat_service = ChatService(ollama_client=ollama_client, producer=event_producer, repository=raw_repo)
+
+
+class MainOllamaAdapter:
+    async def generate(self, messages, model=None):
+        target_model = model or settings.OLLAMA_MODEL
+        res = await ollama_client.generate_chat(messages=messages, model=target_model)
+        return {
+            "model": res.get("model", target_model),
+            "response": res.get("response", ""),
+            "provider": "local",
+        }
+
+
+chat_service = ChatService(ollama_client=MainOllamaAdapter(), producer=event_producer, repository=raw_repo)
 
 
 # ==============================================================================
@@ -128,6 +142,12 @@ async def post_chat(request: ChatRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
+        )
+    except (GeminiAuthError, GeminiConnectionError, GeminiError) as exc:
+        logger.error(f"Gemini generation failure: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"External model provider failure: {exc}",
         )
     except Exception as exc:
         logger.error(f"Unhandled server error: {exc}", exc_info=True)

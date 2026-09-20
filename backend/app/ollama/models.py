@@ -34,6 +34,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     model: str
     response: str
+    provider: str = "local"
+    routing: Optional[dict] = None
     message_id: Optional[str] = None
     conversation_id: Optional[str] = None
 

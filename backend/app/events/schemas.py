@@ -11,6 +11,7 @@ def generate_event_id(prefix: str = "evt") -> str:
 class InteractionEvent(BaseModel):
     event_id: str = Field(default_factory=generate_event_id)
     event_type: str = "chat_interaction"
+    event_schema_version: int = 2
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     user_id: str = "local-user"
     conversation_id: str
@@ -18,6 +19,8 @@ class InteractionEvent(BaseModel):
     prompt: str
     response: str
     model: str
+    provider: str = "local"
+    routing: Optional[Dict[str, Any]] = None
     latency_ms: float = 0.0
 
 
