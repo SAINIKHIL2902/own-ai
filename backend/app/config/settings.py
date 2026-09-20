@@ -28,8 +28,8 @@ class Settings(BaseSettings):
 
     # Phase 3 - Gemini API Configuration
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
-    GEMINI_TIMEOUT: int = 30
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    GEMINI_TIMEOUT: int = 60
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
 
     # Phase 3 - Model Router Thresholds & Policies
