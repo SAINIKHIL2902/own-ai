@@ -169,3 +169,82 @@ def test_assistant_response_feedback_correlation(tmp_path):
     assert fb["feedback_value"] == "positive"
     assert fb["rating"] == 5
 
+
+def test_phase3_response_and_feedback_storage_schema(tmp_path):
+    """Explicitly verify Phase 3 prompt requirements for messages and feedback tables."""
+    db_file = tmp_path / "test_phase3.db"
+    manager = DatabaseManager(db_path=db_file)
+    raw = RawRepository(manager=manager)
+
+    with manager.get_connection() as conn:
+        # 1. Verify messages table columns: message_id, conversation_id, user_id, role, content, model, created_at, latency_ms
+        msg_cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        expected_msg_cols = {
+            "message_id",
+            "conversation_id",
+            "user_id",
+            "role",
+            "content",
+            "model",
+            "created_at",
+            "latency_ms",
+        }
+        assert expected_msg_cols.issubset(msg_cols), f"Missing msg cols: {expected_msg_cols - msg_cols}"
+
+        # 2. Verify feedback table columns: feedback_id, message_id, conversation_id, user_id, feedback_type, feedback_value, created_at, metadata_json
+        fb_cols = {r["name"] for r in conn.execute("PRAGMA table_info(feedback)").fetchall()}
+        expected_fb_cols = {
+            "feedback_id",
+            "message_id",
+            "conversation_id",
+            "user_id",
+            "feedback_type",
+            "feedback_value",
+            "created_at",
+            "metadata_json",
+        }
+        assert expected_fb_cols.issubset(fb_cols), f"Missing fb cols: {expected_fb_cols - fb_cols}"
+
+    # 3. Store conversation -> messages (user message & assistant message)
+    raw.save_conversation("conv_p3", "Phase 3 Conversation")
+    raw.save_message(
+        msg_id="msg_user_p3",
+        conversation_id="conv_p3",
+        role="user",
+        content="Show me how to store feedback",
+        model="llama3.2:1b",
+        latency_ms=0.0,
+        user_id="local_user",
+    )
+    raw.save_message(
+        msg_id="msg_123",
+        conversation_id="conv_p3",
+        role="assistant",
+        content="Here is the response architecture...",
+        model="llama3.2:1b",
+        latency_ms=120.5,
+        user_id="local_user",
+    )
+
+    asst_msg = raw.get_message_by_id("msg_123")
+    assert asst_msg is not None
+    assert asst_msg["message_id"] == "msg_123"
+    assert asst_msg["role"] == "assistant"
+    assert asst_msg["latency_ms"] == 120.5
+
+    # 4. User clicks 👍 -> store feedback with message_id="msg_123", feedback_type="thumbs_up"
+    raw.save_feedback(
+        fb_id="fb_p3_01",
+        message_id="msg_123",
+        conversation_id="conv_p3",
+        feedback_type="thumbs_up",
+        feedback_value="positive",
+    )
+
+    fb = raw.get_feedback_by_message_id("msg_123")
+    assert fb is not None
+    assert fb["message_id"] == "msg_123"
+    assert fb["feedback_type"] == "thumbs_up"
+    assert fb["feedback_id"] == "fb_p3_01"
+
+

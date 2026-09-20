@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 
 CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY,
+    message_id TEXT PRIMARY KEY,
+    id TEXT,
     conversation_id TEXT NOT NULL,
     user_id TEXT DEFAULT 'local_user',
     role TEXT NOT NULL,
@@ -52,7 +53,8 @@ CREATE TABLE IF NOT EXISTS raw_events (
 );
 
 CREATE TABLE IF NOT EXISTS feedback (
-    id TEXT PRIMARY KEY,
+    feedback_id TEXT PRIMARY KEY,
+    id TEXT,
     message_id TEXT NOT NULL,
     conversation_id TEXT,
     user_id TEXT DEFAULT 'local_user',
@@ -62,7 +64,7 @@ CREATE TABLE IF NOT EXISTS feedback (
     comment TEXT,
     metadata_json TEXT,
     created_at TEXT NOT NULL,
-    FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE
+    FOREIGN KEY (message_id) REFERENCES messages (message_id) ON DELETE CASCADE
 );
 
 -- =============================================================================
@@ -139,19 +141,35 @@ class DatabaseManager:
         with self.get_connection() as conn:
             conn.executescript(INIT_SQL)
 
-            # Migration: ensure messages table has user_id
+            # Migration: ensure messages table has message_id, id, and user_id
             msg_cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+            if "message_id" not in msg_cols:
+                conn.execute("ALTER TABLE messages ADD COLUMN message_id TEXT")
+                conn.execute("UPDATE messages SET message_id = id WHERE message_id IS NULL")
+            if "id" not in msg_cols:
+                conn.execute("ALTER TABLE messages ADD COLUMN id TEXT")
+                conn.execute("UPDATE messages SET id = message_id WHERE id IS NULL")
             if "user_id" not in msg_cols:
                 conn.execute("ALTER TABLE messages ADD COLUMN user_id TEXT DEFAULT 'local_user'")
 
-            # Migration: ensure feedback table has user_id, feedback_value, and metadata_json
+            # Migration: ensure feedback table has feedback_id, id, user_id, feedback_value, and metadata_json
             fb_cols = [r["name"] for r in conn.execute("PRAGMA table_info(feedback)").fetchall()]
+            if "feedback_id" not in fb_cols:
+                conn.execute("ALTER TABLE feedback ADD COLUMN feedback_id TEXT")
+                conn.execute("UPDATE feedback SET feedback_id = id WHERE feedback_id IS NULL")
+            if "id" not in fb_cols:
+                conn.execute("ALTER TABLE feedback ADD COLUMN id TEXT")
+                conn.execute("UPDATE feedback SET id = feedback_id WHERE id IS NULL")
             if "user_id" not in fb_cols:
                 conn.execute("ALTER TABLE feedback ADD COLUMN user_id TEXT DEFAULT 'local_user'")
             if "feedback_value" not in fb_cols:
                 conn.execute("ALTER TABLE feedback ADD COLUMN feedback_value TEXT")
             if "metadata_json" not in fb_cols:
                 conn.execute("ALTER TABLE feedback ADD COLUMN metadata_json TEXT")
+
+            # Indexes for foreign key lookup and message_id
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_msg_id ON messages(message_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_msg_id ON feedback(message_id)")
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_metadata (key, value) VALUES ('schema_version', ?)",

@@ -20,14 +20,19 @@ class ConversationRecord:
 
 @dataclass
 class MessageRecord:
-    id: str
+    message_id: str
     conversation_id: str
     role: str
     content: str
     model: str
     user_id: str = "local_user"
     latency_ms: float = 0.0
+    id: Optional[str] = None
     created_at: str = field(default_factory=utc_now)
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = self.message_id
 
 
 @dataclass
@@ -44,7 +49,7 @@ class RawEventRecord:
 
 @dataclass
 class FeedbackRecord:
-    id: str
+    feedback_id: str
     message_id: str
     conversation_id: Optional[str]
     feedback_type: str  # thumbs_up, thumbs_down, positive, negative, correction
@@ -53,7 +58,12 @@ class FeedbackRecord:
     rating: Optional[int] = None
     comment: Optional[str] = None
     metadata_json: Optional[str] = None  # JSON string of detected style tags & metrics
+    id: Optional[str] = None
     created_at: str = field(default_factory=utc_now)
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = self.feedback_id
 
 
 # ==============================================================================
