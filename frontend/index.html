@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local AI</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="chatgpt-layout" id="app-layout">
+    <!-- Collapsible Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <button class="new-chat-btn" id="new-chat-btn">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>New chat</span>
+        </button>
+        <button class="sidebar-toggle-btn icon-btn" id="sidebar-close-btn" title="Close sidebar">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- History List -->
+      <div class="history-section">
+        <div class="history-label">Recent Chats</div>
+        <div class="history-list" id="history-list">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div class="system-status-box" id="system-status-box">
+          <div class="status-indicator">
+            <span class="status-dot" id="status-dot"></span>
+            <span class="status-name" id="status-text">Connecting...</span>
+          </div>
+          <div class="status-meta">
+            <span class="meta-model" id="sidebar-model-badge">llama3.2:1b</span>
+            <span class="meta-tag">100% Local</span>
+          </div>
+        </div>
+        <button class="clear-all-btn" id="clear-all-btn" title="Clear all chat history">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          <span>Clear conversations</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Chat Workspace -->
+    <main class="chat-workspace">
+      <!-- Top Navigation Bar -->
+      <header class="top-nav">
+        <div class="nav-left">
+          <button class="icon-btn sidebar-open-btn" id="sidebar-open-btn" title="Open sidebar">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+          <div class="model-selector-pill">
+            <span class="pill-sparkle">✨</span>
+            <span class="pill-name" id="top-model-name">llama3.2:1b</span>
+            <span class="pill-tag">Local</span>
+          </div>
+        </div>
+        <div class="nav-right">
+          <span class="offline-pill" id="offline-pill">
+            <span class="dot-green"></span>
+            Offline Ready
+          </span>
+        </div>
+      </header>
+
+      <!-- Chat Messages Scroll Container -->
+      <div class="messages-viewport" id="messages-viewport">
+        <!-- Welcome Screen (Shown when empty) -->
+        <div class="welcome-container" id="welcome-container">
+          <div class="welcome-avatar">
+            <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor">
+              <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/>
+            </svg>
+          </div>
+          <h1 class="welcome-title">What can I help with today?</h1>
+          <p class="welcome-subtitle">All responses are generated locally on your Mac by Ollama. 100% private and offline.</p>
+
+          <div class="suggestion-grid">
+            <button class="suggestion-card" data-prompt="What is Python and what are its main use cases?">
+              <div class="suggestion-title">Explain Python</div>
+              <div class="suggestion-desc">Overview and its most popular use cases</div>
+            </button>
+            <button class="suggestion-card" data-prompt="Write a clean Python function to check whether a given string is a palindrome.">
+              <div class="suggestion-title">Write a function</div>
+              <div class="suggestion-desc">Check if a string is a palindrome</div>
+            </button>
+            <button class="suggestion-card" data-prompt="Explain how a compiler turns code into machine instructions in simple terms.">
+              <div class="suggestion-title">How compilers work</div>
+              <div class="suggestion-desc">Simple step-by-step mental model</div>
+            </button>
+            <button class="suggestion-card" data-prompt="Give me 3 creative ideas for a personal offline tool.">
+              <div class="suggestion-title">Brainstorm ideas</div>
+              <div class="suggestion-desc">Productive offline Mac applications</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Conversation stream -->
+        <div class="conversation-stream" id="conversation-stream">
+          <!-- User and Assistant messages appended here -->
+        </div>
+      </div>
+
+      <!-- Error Toast -->
+      <div class="error-toast" id="error-toast" style="display: none;">
+        <span class="toast-icon">⚠️</span>
+        <span class="toast-message" id="toast-message"></span>
+        <button class="toast-close" id="toast-close">&times;</button>
+      </div>
+
+      <!-- ChatGPT-style Bottom Composer -->
+      <div class="composer-container">
+        <div class="composer-box">
+          <textarea
+            id="chat-textarea"
+            placeholder="Message Local AI..."
+            rows="1"
+            autofocus
+          ></textarea>
+          <button id="send-button" class="send-circle-btn" disabled title="Send message">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="19" x2="12" y2="5"></line>
+              <polyline points="5 12 12 5 19 12"></polyline>
+            </svg>
+          </button>
+        </div>
+        <div class="composer-disclaimer">
+          Personal Local AI can make mistakes. Runs completely offline via local Ollama.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
