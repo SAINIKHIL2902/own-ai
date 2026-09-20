@@ -12,7 +12,8 @@ from app.llm.gemini_client import (
 
 
 @pytest.mark.asyncio
-async def test_gemini_client_missing_api_key_raises_auth_error():
+async def test_gemini_client_missing_api_key_raises_auth_error(monkeypatch):
+    monkeypatch.setattr("app.llm.gemini_client.settings.GEMINI_API_KEY", None)
     client = GeminiClient(api_key=None)
     with pytest.raises(GeminiAuthError):
         await client.generate(messages=[{"role": "user", "content": "Hello"}])

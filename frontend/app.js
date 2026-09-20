@@ -407,6 +407,7 @@ async function handleSendMessage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        conversation_id: currentChatId,
         messages: chat.messages.map((m) => ({ role: m.role, content: m.content })),
       }),
     });

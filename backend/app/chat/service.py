@@ -64,7 +64,7 @@ class ChatService:
         latest_prompt = user_messages[-1] if user_messages else (messages_payload[-1]["content"] if messages_payload else "")
         history = messages_payload[:-1] if len(messages_payload) > 1 else None
 
-        conv_id = f"conv_{uuid.uuid4().hex[:8]}"
+        conv_id = request.conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
         user_msg_id = f"msg_{uuid.uuid4().hex[:8]}"
         asst_msg_id = f"msg_{uuid.uuid4().hex[:8]}"
 
@@ -81,7 +81,9 @@ class ChatService:
         # 2. Execute selected model (Single-model execution in production)
         if selected_provider == "local":
             logger.info(f"Routing to LOCAL Ollama model '{target_model}' (suitability={decision.local_suitability})")
-            result = await self.ollama.generate(messages=messages_payload, model=target_model)
+            # Sliding window of last 8 messages ensures local model remains responsive
+            local_payload = messages_payload[-8:] if len(messages_payload) > 8 else messages_payload
+            result = await self.ollama.generate(messages=local_payload, model=target_model)
             response_text = result.get("response", "")
             actual_model = result.get("model", target_model)
             actual_provider = "local"

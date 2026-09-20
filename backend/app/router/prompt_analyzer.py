@@ -98,13 +98,16 @@ class PromptAnalyzer:
         if structured_output_required and task_type in ["question_answering", "explanation"]:
             task_type = "structured_output"
 
-        # 3. Context requirement (normalized by 6,000 char window)
+        # 3. Context requirement
+        # Evaluate current prompt length and recent conversation turns (up to 4 turns)
         total_chars = length
         if conversation_history:
-            for m in conversation_history:
-                total_chars += len(m.get("content", ""))
+            recent_history = conversation_history[-4:]
+            total_chars += sum(len(m.get("content", "")) for m in recent_history)
         context_requirement = min(round(total_chars / 6000.0, 3), 1.0)
-        if total_chars > 4500:
+
+        # Only classify as long_context if the prompt itself is a long text (>3500 chars)
+        if length > 3500 and task_type in ["question_answering", "explanation"]:
             task_type = "long_context"
 
         # 4. Reasoning requirement
@@ -124,7 +127,8 @@ class PromptAnalyzer:
         complexity_score = min(round(raw_complexity, 2), 1.0)
 
         # 6. Difficulty tier: easy, medium, hard
-        if complexity_score >= 0.65 or context_requirement >= 0.70 or reasoning_requirement >= 0.70:
+        # Inherent difficulty of the prompt based on complexity and reasoning demands
+        if complexity_score >= 0.65 or reasoning_requirement >= 0.70 or length > 4000:
             difficulty = "hard"
         elif complexity_score >= 0.35 or reasoning_requirement >= 0.40:
             difficulty = "medium"

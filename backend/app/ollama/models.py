@@ -10,6 +10,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: Optional[str] = Field(default=None, description="Single prompt message")
     messages: Optional[List[ChatMessage]] = Field(default=None, description="Optional conversation history")
+    conversation_id: Optional[str] = Field(default=None, description="Optional conversation ID")
 
     @model_validator(mode="after")
     def validate_input(self) -> "ChatRequest":

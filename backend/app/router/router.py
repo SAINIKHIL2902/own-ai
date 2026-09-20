@@ -64,12 +64,9 @@ class ModelRouter:
         """
         # 1. Analyze prompt requirements
         analysis = self.analyzer.analyze(prompt, conversation_history)
-        total_chars = analysis.prompt_length_chars
-        if conversation_history:
-            total_chars += sum(len(m.get("content", "")) for m in conversation_history)
 
-        # 2. Hard capability check
-        hard_passed, hard_reason = self.hard_checker.check(analysis, total_chars)
+        # 2. Hard capability check (evaluates prompt demands against physical boundaries)
+        hard_passed, hard_reason = self.hard_checker.check(analysis, analysis.prompt_length_chars)
         if not hard_passed:
             logger.info(f"ModelRouter: Hard capability limit exceeded -> GEMINI ({hard_reason})")
             return RoutingDecision(
