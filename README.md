@@ -1,10 +1,12 @@
-# Personal Local AI — Phase 1, Phase 2 & Phase 3
+# Personal Local AI — Phase 1, Phase 2, Phase 3 & Phase 4
 
 A clean, reliable, modular, privacy-first **Personal AI Assistant** running on macOS Apple Silicon.
 
 - **Phase 1**: Local LLM inference via Ollama (`llama3.2:1b`), FastAPI backend, and ChatGPT-style web interface.
 - **Phase 2**: Event-driven user behavior, interest, preference & context modeling using Apache Kafka, local SQLite storage, and an automated background Behavior Analyzer.
 - **Phase 3**: Intelligent capability-based model routing between Local (Ollama) and Cloud (Google Gemini), hard capability boundaries, deterministic privacy sanitization, empirical benchmark evaluation, and visual model attribution.
+- **Phase 4**: Local-first Memory & Personalization with deterministic detection, confidence reinforcement, contradiction reconciliation, lifecycle management, relevance scoring, `ContextBuilder` prompt injection (current user instructions always win), privacy-sanitized Gemini context, and an interactive Memory Management UI.
+
 
 ---
 
@@ -293,16 +295,16 @@ http://localhost:8000
 
 ## Testing & Verification
 
-### 1. Automated Test Suite (75 Tests)
-Run the complete regression test suite covering Phase 1, Phase 2, and Phase 3:
+### 1. Automated Test Suite (96 Tests)
+Run the complete regression test suite covering Phase 1, Phase 2, Phase 3, and Phase 4:
 ```bash
 cd "own-ai/backend"
-venv/bin/pytest tests/ -v
+venv/bin/pytest tests/ --ignore=tests/integration/test_ollama_live.py -v
 ```
 
 **Results:**
 ```text
-75 passed, 2 warnings in 0.63s (100% PASS)
+94 passed, 2 warnings in 0.81s (100% PASS)
 - tests/behavior/ (19 tests) PASSED
 - tests/events/ (3 tests) PASSED
 - tests/llm/ (4 tests) PASSED
@@ -310,13 +312,53 @@ venv/bin/pytest tests/ -v
 - tests/router/ (15 tests) PASSED
 - tests/storage/ (4 tests) PASSED
 - tests/integration/ (6 tests) PASSED
+- tests/memory/ (21 tests) PASSED:
+  ├── test_detector.py (5 tests)
+  ├── test_confidence_and_contradiction.py (4 tests)
+  ├── test_lifecycle_and_retrieval.py (4 tests)
+  ├── test_context_builder.py (3 tests)
+  ├── test_privacy_boundary.py (1 test)
+  ├── test_memory_api.py (2 tests)
+  └── test_chat_service_memory.py (2 tests)
 - Phase 1 chat & config tests (17 tests) PASSED
 ```
 
-### 2. Evaluation Benchmark Runner
-Run the automated benchmark suite against the multi-tier dataset (`routing_eval_v1.json`):
+### 2. Live Ollama Verification (2 Tests)
 ```bash
-cd "own-ai/backend"
-venv/bin/python3 -m app.router.evaluation
+venv/bin/pytest tests/integration/test_ollama_live.py -v
 ```
-Reports are automatically saved in `evaluation/reports/`.
+Output: `2 passed in 1.79s (100% PASS)`
+
+---
+
+## Phase 4: Memory & Personalization
+
+### 1. Memory Lifecycle & Flow
+```
+User Prompt
+    │
+    ▼
+ChatService
+    │
+    ├── 1. Retrieve Active Memories (Scored by: 0.35*Topic + 0.25*Importance + 0.25*Confidence + 0.15*Recency)
+    ├── 2. ContextBuilder (Prepends system directive: Current request instructions ALWAYS supersede background memory)
+    ├── 3. ModelRouter (Phase 3: Evaluates Local vs. Gemini routing)
+    ├── 4. If Gemini: PrivacyScanner sanitizes personalized context (API keys, passwords redacted; original preserved locally)
+    ├── 5. Single-Model Execution (Local Ollama or Gemini)
+    ├── 6. Persist Interaction & Emit Event (Phase 2 Outbox / Kafka)
+    └── 7. Async Memory Detection (Zero blocking: extracts preferences, goals, facts, instructions, detects contradictions)
+```
+
+### 2. Memory REST API
+- `GET /memory`: List memories (filter by `type`, `status_filter`, or `user_id`).
+- `GET /memory/{memory_id}`: Retrieve single memory details.
+- `POST /memory`: Create memory record manually.
+- `PATCH /memory/{memory_id}`: Update memory content, type, importance, or confidence.
+- `DELETE /memory/{memory_id}`: Soft-archive or hard-delete memory.
+
+### 3. Frontend Memory Management UI
+- **Header & Sidebar Buttons**: Direct access via `🧠 Memories`.
+- **Add Memory Form**: Inline creation with category selection (`preference`, `interest`, `goal`, `instruction`, `fact`, `context`).
+- **Filter Tabs**: Instant filtering across memory types.
+- **Card Controls**: Live in-place edit and soft archive/deletion.
+

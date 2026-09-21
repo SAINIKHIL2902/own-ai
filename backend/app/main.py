@@ -22,8 +22,16 @@ from app.ollama.client import (
     OllamaModelNotFoundError,
 )
 from app.llm.gemini_client import GeminiAuthError, GeminiConnectionError, GeminiError
+from app.memory.models import (
+    MemoryCreateRequest,
+    MemoryResponse,
+    MemoryUpdateRequest,
+)
+from app.memory.service import memory_service
 from app.ollama.models import ChatRequest, ChatResponse, HealthResponse, ModelsResponse
 from app.storage.repositories import profile_repo, raw_repo
+
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -278,3 +286,68 @@ async def post_export_dataset():
         "records_exported": count,
         "file_path": str(file_path),
     }
+
+
+# ==============================================================================
+# PHASE 4 ENDPOINTS: MEMORY MANAGEMENT & PERSONALIZATION
+# ==============================================================================
+@app.get("/memory", response_model=List[MemoryResponse], summary="List Memories")
+async def get_memories(
+    user_id: str = "local_user",
+    type: Optional[str] = None,
+    status_filter: Optional[str] = None,
+):
+    """List stored memories filtered by user, type, or lifecycle status."""
+    memories = memory_service.list_memories(user_id=user_id, memory_type=type, status=status_filter)
+    return [MemoryResponse(**m.to_dict()) for m in memories]
+
+
+@app.get("/memory/{memory_id}", response_model=MemoryResponse, summary="Get Single Memory")
+async def get_memory_by_id(memory_id: str):
+    """Retrieve a specific memory by its unique ID."""
+    memory = memory_service.get_memory(memory_id)
+    if not memory:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Memory '{memory_id}' not found.",
+        )
+    return MemoryResponse(**memory.to_dict())
+
+
+@app.post("/memory", response_model=MemoryResponse, status_code=status.HTTP_201_CREATED, summary="Create Memory")
+async def create_memory(request: MemoryCreateRequest, user_id: str = "local_user"):
+    """Manually add a memory preference, interest, goal, fact, or instruction."""
+    try:
+        created = memory_service.create_memory_manual(request, user_id=user_id)
+        return MemoryResponse(**created.to_dict())
+    except Exception as exc:
+        logger.error(f"Failed to create memory: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+
+@app.patch("/memory/{memory_id}", response_model=MemoryResponse, summary="Update Memory")
+async def update_memory(memory_id: str, request: MemoryUpdateRequest):
+    """Update content, type, status, importance, or confidence of an existing memory."""
+    updated = memory_service.update_memory(memory_id, request)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Memory '{memory_id}' not found.",
+        )
+    return MemoryResponse(**updated.to_dict())
+
+
+@app.delete("/memory/{memory_id}", summary="Delete or Archive Memory")
+async def delete_memory(memory_id: str, soft: bool = True):
+    """Delete a memory (soft-archives by default, or hard deletes if soft=False)."""
+    success = memory_service.delete_memory(memory_id, soft=soft)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Memory '{memory_id}' not found.",
+        )
+    return {"status": "ok", "deleted": True, "memory_id": memory_id, "soft": soft}
+

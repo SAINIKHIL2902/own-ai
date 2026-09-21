@@ -7,7 +7,7 @@ from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 INIT_SQL = """
 PRAGMA journal_mode=WAL;
@@ -115,11 +115,34 @@ CREATE TABLE IF NOT EXISTS user_behavior_stats (
     updated_at TEXT NOT NULL
 );
 
+-- =============================================================================
+-- PHASE 4 MEMORY TABLES
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS memories (
+    memory_id TEXT PRIMARY KEY,
+    user_id TEXT DEFAULT 'local_user',
+    memory_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_reference TEXT,
+    confidence REAL NOT NULL,
+    importance REAL NOT NULL,
+    evidence_count INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_confirmed_at TEXT,
+    expires_at TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
 CREATE INDEX IF NOT EXISTS idx_feedback_msg ON feedback(message_id);
 CREATE INDEX IF NOT EXISTS idx_events_processed ON raw_events(processed);
 CREATE INDEX IF NOT EXISTS idx_interests_score ON user_interests(score DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status);
+CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
+CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
 """
 
 
@@ -138,7 +161,7 @@ class DatabaseManager:
         return conn
 
     def init_schema(self):
-        """Initialize all raw and derived tables with schema versioning and seamless migrations."""
+        """Initialize all raw, derived, and memory tables with schema versioning and seamless migrations."""
         with self.get_connection() as conn:
             conn.executescript(INIT_SQL)
 
@@ -173,6 +196,9 @@ class DatabaseManager:
             # Indexes for foreign key lookup and message_id
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_msg_id ON messages(message_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_msg_id ON feedback(message_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id)")
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_metadata (key, value) VALUES ('schema_version', ?)",

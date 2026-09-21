@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     LOCAL_MAX_CONTEXT_CHARS: int = 6000
     ROUTER_FALLBACK_TO_LOCAL: bool = True
 
+    # Phase 4 - Memory & Personalization
+    MEMORY_RELEVANCE_THRESHOLD: float = 0.40
+    MEMORY_TOP_K: int = 5
+    MEMORY_RELEVANCE_TOPIC_WEIGHT: float = 0.35
+    MEMORY_RELEVANCE_IMPORTANCE_WEIGHT: float = 0.25
+    MEMORY_RELEVANCE_CONFIDENCE_WEIGHT: float = 0.25
+    MEMORY_RELEVANCE_RECENCY_WEIGHT: float = 0.15
+
     # Load from .env file if present
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
