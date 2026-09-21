@@ -1,7 +1,34 @@
+# Environment & secrets
 .env
+.env.local
+.env.*
+
+# Python virtualenvs & cache
 venv/
+backend/venv/
+**/__pycache__/
 __pycache__/
+**/.pytest_cache/
 .pytest_cache/
 *.pyc
+
+# Local LLM weights
 models/
+
+# macOS metadata
 .DS_Store
+**/.DS_Store
+
+# Local SQLite databases (WAL / SHM)
+*.db
+*.db-wal
+*.db-shm
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Event spool & exports (keep directory structure)
+data/events/*
+!data/events/.gitkeep
+data/exports/*
+!data/exports/.gitkeep

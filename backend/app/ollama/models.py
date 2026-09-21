@@ -34,6 +34,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     model: str
     response: str
+    message_id: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 class HealthResponse(BaseModel):

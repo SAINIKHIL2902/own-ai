@@ -1,5 +1,5 @@
 // State
-let chats = []; // [{ id: string, title: string, messages: [{ role, content }] }]
+let chats = []; // [{ id: string, title: string, messages: [{ id, role, content, feedback }] }]
 let currentChatId = null;
 let isGenerating = false;
 let activeModel = "llama3.2:1b";
@@ -26,6 +26,19 @@ const sendButton = document.getElementById("send-button");
 const errorToast = document.getElementById("error-toast");
 const toastMessage = document.getElementById("toast-message");
 const toastClose = document.getElementById("toast-close");
+
+// Profile Modal Elements
+const profileModal = document.getElementById("profile-modal");
+const viewProfileBtn = document.getElementById("view-profile-btn");
+const topProfileBtn = document.getElementById("top-profile-btn");
+const modalCloseBtn = document.getElementById("modal-close-btn");
+const modalInterests = document.getElementById("modal-interests");
+const modalPreferences = document.getElementById("modal-preferences");
+const modalResponseStyles = document.getElementById("modal-response-styles");
+const modalConfusionTriggers = document.getElementById("modal-confusion-triggers");
+const modalStats = document.getElementById("modal-stats");
+const exportDatasetBtn = document.getElementById("export-dataset-btn");
+const exportStatus = document.getElementById("export-status");
 
 // Initialize from LocalStorage
 function initStorage() {
@@ -105,7 +118,7 @@ function renderCurrentChat() {
     welcomeContainer.style.display = "none";
     conversationStream.style.display = "flex";
     chat.messages.forEach((msg) => {
-      appendMessageToDOM(msg.role, msg.content, false);
+      appendMessageToDOM(msg.role, msg.content, false, msg.id, msg.feedback);
     });
     scrollToBottom();
   }
@@ -190,13 +203,48 @@ window.copyFullMessage = function (btn, text) {
   });
 };
 
+// Submit Feedback Handler
+window.submitFeedback = async function (msgId, type, btnElement) {
+  try {
+    const res = await fetch("/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message_id: msgId,
+        conversation_id: currentChatId,
+        feedback_type: type === "positive" ? "thumbs_up" : "thumbs_down",
+        feedback_value: type,
+        rating: type === "positive" ? 5 : 1,
+      }),
+    });
+    if (res.ok) {
+      const parent = btnElement.closest(".msg-actions");
+      parent.querySelectorAll(".feedback-btn").forEach((b) => {
+        b.classList.remove("active-positive", "active-negative");
+      });
+      btnElement.classList.add(type === "positive" ? "active-positive" : "active-negative");
+
+      // Record in local state
+      const chat = getCurrentChat();
+      if (chat) {
+        const msg = chat.messages.find((m) => m.id === msgId);
+        if (msg) msg.feedback = type;
+        saveStorage();
+      }
+    }
+  } catch (e) {
+    console.error("Feedback submit failed:", e);
+  }
+};
+
 // Append Message to DOM
-function appendMessageToDOM(role, content, animate = true) {
+function appendMessageToDOM(role, content, animate = true, msgId = null, feedback = null) {
   welcomeContainer.style.display = "none";
   conversationStream.style.display = "flex";
 
   const row = document.createElement("div");
   row.className = `msg-row ${role}`;
+  const effectiveId = msgId || "msg_" + Math.random().toString(36).substr(2, 9);
 
   // Avatar for assistant
   if (role === "assistant") {
@@ -224,7 +272,7 @@ function appendMessageToDOM(role, content, animate = true) {
 
   contentWrapper.appendChild(bubble);
 
-  // Actions bar for assistant
+  // Actions bar for assistant (Copy + Thumbs Up + Thumbs Down)
   if (role === "assistant") {
     const actions = document.createElement("div");
     actions.className = "msg-actions";
@@ -240,6 +288,22 @@ function appendMessageToDOM(role, content, animate = true) {
     `;
     copyBtn.addEventListener("click", () => window.copyFullMessage(copyBtn, content));
     actions.appendChild(copyBtn);
+
+    // Thumbs Up button
+    const thumbsUpBtn = document.createElement("button");
+    thumbsUpBtn.className = `feedback-btn ${feedback === "positive" ? "active-positive" : ""}`;
+    thumbsUpBtn.innerHTML = "👍";
+    thumbsUpBtn.title = "Good response";
+    thumbsUpBtn.addEventListener("click", () => window.submitFeedback(effectiveId, "positive", thumbsUpBtn));
+    actions.appendChild(thumbsUpBtn);
+
+    // Thumbs Down button
+    const thumbsDownBtn = document.createElement("button");
+    thumbsDownBtn.className = `feedback-btn ${feedback === "negative" ? "active-negative" : ""}`;
+    thumbsDownBtn.innerHTML = "👎";
+    thumbsDownBtn.title = "Poor response";
+    thumbsDownBtn.addEventListener("click", () => window.submitFeedback(effectiveId, "negative", thumbsDownBtn));
+    actions.appendChild(thumbsDownBtn);
 
     contentWrapper.appendChild(actions);
   }
@@ -317,18 +381,16 @@ async function handleSendMessage() {
     chat = getCurrentChat();
   }
 
-  // Update title if first message
   if (chat.messages.length === 0) {
     chat.title = text.slice(0, 30) + (text.length > 30 ? "..." : "");
     renderHistory();
   }
 
-  // Append user message
-  chat.messages.push({ role: "user", content: text });
-  appendMessageToDOM("user", text);
+  const userMsgId = "msg_" + Math.random().toString(36).substr(2, 9);
+  chat.messages.push({ id: userMsgId, role: "user", content: text });
+  appendMessageToDOM("user", text, true, userMsgId);
   saveStorage();
 
-  // Show thinking
   showThinking();
 
   try {
@@ -336,7 +398,7 @@ async function handleSendMessage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messages: chat.messages,
+        messages: chat.messages.map((m) => ({ role: m.role, content: m.content })),
       }),
     });
 
@@ -349,14 +411,15 @@ async function handleSendMessage() {
         errDetail = errJson.detail || errDetail;
       } catch (e) {}
       showErrorToast(errDetail);
-      chat.messages.pop(); // Remove failed user message from state
+      chat.messages.pop();
       saveStorage();
       return;
     }
 
     const data = await response.json();
-    chat.messages.push({ role: "assistant", content: data.response });
-    appendMessageToDOM("assistant", data.response);
+    const asstMsgId = data.message_id || ("msg_" + Math.random().toString(36).substr(2, 9));
+    chat.messages.push({ id: asstMsgId, role: "assistant", content: data.response });
+    appendMessageToDOM("assistant", data.response, true, asstMsgId);
     saveStorage();
 
     if (data.model) {
@@ -408,6 +471,150 @@ async function loadModels() {
   } catch (e) {}
 }
 
+// Open & Populate Profile Modal
+async function openProfileModal() {
+  profileModal.style.display = "flex";
+  exportStatus.textContent = "";
+
+  try {
+    const res = await fetch("/profile");
+    if (!res.ok) throw new Error("Failed to fetch profile");
+    const data = await res.json();
+
+    // 1. Interests
+    if (data.interests && data.interests.length > 0) {
+      modalInterests.innerHTML = data.interests
+        .map(
+          (item) =>
+            `<div class="interest-chip">
+              <span>${escapeHtml(item.topic)}</span>
+              <span class="interest-score">${Math.round(item.score * 100)}%</span>
+            </div>`
+        )
+        .join("");
+    } else {
+      modalInterests.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No interests modeled yet. Start chatting to extract topics!</div>';
+    }
+
+    // 2. Preferences
+    if (data.preferences && data.preferences.length > 0) {
+      modalPreferences.innerHTML = data.preferences
+        .map(
+          (pref) =>
+            `<div class="pref-row">
+              <span>${escapeHtml(pref.preference.replace("prefers_", "").replace(/_/g, " "))}</span>
+              <div class="pref-conf-bar">
+                <div class="conf-pill">
+                  <div class="conf-fill" style="width: ${Math.round(pref.confidence * 100)}%"></div>
+                </div>
+                <span>${Math.round(pref.confidence * 100)}% confidence</span>
+              </div>
+            </div>`
+        )
+        .join("");
+    } else {
+      modalPreferences.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No stylistic preferences detected yet.</div>';
+    }
+
+    // 3. Preferred Response Styles
+    const styles = data.response_styles || [];
+    const likedStyles = styles.filter((s) => s.liked_count > 0);
+    if (likedStyles.length > 0) {
+      modalResponseStyles.innerHTML = likedStyles
+        .map(
+          (st) =>
+            `<div class="pref-row">
+              <div>
+                <strong>${escapeHtml(st.style_name)}</strong>
+                <div style="font-size: 0.78rem; color: var(--text-muted);">${escapeHtml(st.description)}</div>
+              </div>
+              <div class="pref-conf-bar">
+                <div class="conf-pill">
+                  <div class="conf-fill" style="width: ${Math.round(st.affinity_score * 100)}%"></div>
+                </div>
+                <span style="color: var(--accent-green); font-size: 0.78rem;">${st.liked_count} 👍 (${Math.round(st.affinity_score * 100)}% affinity)</span>
+              </div>
+            </div>`
+        )
+        .join("");
+    } else {
+      modalResponseStyles.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No response styles rated yet. Upvote 👍 responses you like to build your style profile!</div>';
+    }
+
+    // 4. Disliked Styles & Confusion Triggers
+    const dislikedStyles = styles.filter((s) => s.disliked_count > 0);
+    const confusionTriggers = [];
+    if (dislikedStyles.length > 0) {
+      dislikedStyles.forEach((ds) => {
+        confusionTriggers.push(`${ds.style_name} (${ds.disliked_count} 👎)`);
+      });
+    }
+    const stats = data.behavior_stats || {};
+    if (stats.top_confusion_trigger) {
+      confusionTriggers.push(stats.top_confusion_trigger);
+    }
+
+    if (confusionTriggers.length > 0) {
+      modalConfusionTriggers.innerHTML = confusionTriggers
+        .map(
+          (trig) =>
+            `<div class="interest-chip" style="border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.1);">
+              <span>⚠️ ${escapeHtml(trig)}</span>
+            </div>`
+        )
+        .join("");
+    } else {
+      modalConfusionTriggers.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No confusion triggers or ambiguity flagged yet. Downvote 👎 confusing responses to record what to avoid.</div>';
+    }
+
+    // 5. Statistics
+    modalStats.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-label">Total Messages</div>
+        <div class="stat-val">${stats.total_interactions || 0}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Prompt Length</div>
+        <div class="stat-val">${stats.avg_prompt_length || 0} chars</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Positive Feedback</div>
+        <div class="stat-val">${stats.feedback_positive_count || 0}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Negative Feedback</div>
+        <div class="stat-val">${stats.feedback_negative_count || 0}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Top Liked Style</div>
+        <div class="stat-val" style="font-size: 0.85rem;">${stats.top_liked_style || "None yet"}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Last Model Used</div>
+        <div class="stat-val" style="font-size: 0.95rem;">${stats.last_model_used || "N/A"}</div>
+      </div>
+    `;
+  } catch (err) {
+    modalInterests.innerHTML = '<div style="color: var(--accent-red);">Error loading user profile.</div>';
+  }
+}
+
+// Export Dataset
+exportDatasetBtn.addEventListener("click", async () => {
+  exportStatus.textContent = "Exporting dataset...";
+  try {
+    const res = await fetch("/analytics/export", { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      exportStatus.textContent = `✓ Exported ${data.records_exported} records to ${data.file_path.split("/").pop()}`;
+    } else {
+      exportStatus.textContent = "Export failed.";
+    }
+  } catch (e) {
+    exportStatus.textContent = "Export failed: " + e.message;
+  }
+});
+
 // Event Listeners
 chatTextarea.addEventListener("input", () => {
   chatTextarea.style.height = "auto";
@@ -425,10 +632,7 @@ chatTextarea.addEventListener("keydown", (e) => {
 });
 
 sendButton.addEventListener("click", handleSendMessage);
-
-newChatBtn.addEventListener("click", () => {
-  createNewChat();
-});
+newChatBtn.addEventListener("click", createNewChat);
 
 clearAllBtn.addEventListener("click", () => {
   if (confirm("Are you sure you want to clear all conversation history?")) {
@@ -438,12 +642,17 @@ clearAllBtn.addEventListener("click", () => {
   }
 });
 
-sidebarCloseBtn.addEventListener("click", () => {
-  sidebar.classList.add("collapsed");
-});
+sidebarCloseBtn.addEventListener("click", () => sidebar.classList.add("collapsed"));
+sidebarOpenBtn.addEventListener("click", () => sidebar.classList.remove("collapsed"));
 
-sidebarOpenBtn.addEventListener("click", () => {
-  sidebar.classList.remove("collapsed");
+viewProfileBtn.addEventListener("click", openProfileModal);
+topProfileBtn.addEventListener("click", openProfileModal);
+modalCloseBtn.addEventListener("click", () => (profileModal.style.display = "none"));
+
+window.addEventListener("click", (e) => {
+  if (e.target === profileModal) {
+    profileModal.style.display = "none";
+  }
 });
 
 toastClose.addEventListener("click", hideErrorToast);

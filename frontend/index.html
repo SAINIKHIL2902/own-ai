@@ -36,6 +36,14 @@
 
       <!-- Sidebar Footer -->
       <div class="sidebar-footer">
+        <button class="sidebar-action-btn" id="view-profile-btn" title="View modeled interests and behavior">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          <span>User Profile & Interests</span>
+        </button>
+
         <div class="system-status-box" id="system-status-box">
           <div class="status-indicator">
             <span class="status-dot" id="status-dot"></span>
@@ -43,7 +51,7 @@
           </div>
           <div class="status-meta">
             <span class="meta-model" id="sidebar-model-badge">llama3.2:1b</span>
-            <span class="meta-tag">100% Local</span>
+            <span class="meta-tag">Phase 2 Local</span>
           </div>
         </div>
         <button class="clear-all-btn" id="clear-all-btn" title="Clear all chat history">
@@ -74,6 +82,9 @@
           </div>
         </div>
         <div class="nav-right">
+          <button class="profile-nav-btn" id="top-profile-btn" title="View Derived Profile">
+            📊 Profile
+          </button>
           <span class="offline-pill" id="offline-pill">
             <span class="dot-green"></span>
             Offline Ready
@@ -98,17 +109,17 @@
               <div class="suggestion-title">Explain Python</div>
               <div class="suggestion-desc">Overview and its most popular use cases</div>
             </button>
-            <button class="suggestion-card" data-prompt="Write a clean Python function to check whether a given string is a palindrome.">
-              <div class="suggestion-title">Write a function</div>
-              <div class="suggestion-desc">Check if a string is a palindrome</div>
+            <button class="suggestion-card" data-prompt="Can you give me a step-by-step Python script for a Kafka consumer?">
+              <div class="suggestion-title">Kafka Consumer in Python</div>
+              <div class="suggestion-desc">Step-by-step code and partition explanation</div>
             </button>
             <button class="suggestion-card" data-prompt="Explain how a compiler turns code into machine instructions in simple terms.">
               <div class="suggestion-title">How compilers work</div>
               <div class="suggestion-desc">Simple step-by-step mental model</div>
             </button>
-            <button class="suggestion-card" data-prompt="Give me 3 creative ideas for a personal offline tool.">
-              <div class="suggestion-title">Brainstorm ideas</div>
-              <div class="suggestion-desc">Productive offline Mac applications</div>
+            <button class="suggestion-card" data-prompt="I am currently learning MLOps for my pipeline project.">
+              <div class="suggestion-title">Active Project Context</div>
+              <div class="suggestion-desc">Record learning and project context</div>
             </button>
           </div>
         </div>
@@ -143,10 +154,46 @@
           </button>
         </div>
         <div class="composer-disclaimer">
-          Personal Local AI can make mistakes. Runs completely offline via local Ollama.
+          Personal Local AI &bull; Event-Driven Behavior Modeling &bull; 100% Offline SQLite
         </div>
       </div>
     </main>
+
+    <!-- Phase 2: User Profile & Behavior Modal -->
+    <div class="modal-backdrop" id="profile-modal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>📊 Derived User Profile (Phase 2)</h2>
+          <button class="modal-close-btn" id="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-body">
+          <div class="profile-section">
+            <h3>Top Interests & Topics</h3>
+            <div id="modal-interests" class="profile-chips-grid">Loading...</div>
+          </div>
+          <div class="profile-section">
+            <h3>Detected Style Preferences</h3>
+            <div id="modal-preferences" class="profile-list">Loading...</div>
+          </div>
+          <div class="profile-section">
+            <h3>🎨 Preferred Response Styles</h3>
+            <div id="modal-response-styles" class="profile-list">Loading...</div>
+          </div>
+          <div class="profile-section">
+            <h3>⚠️ Disliked Styles & Confusion Triggers</h3>
+            <div id="modal-confusion-triggers" class="profile-chips-grid">Loading...</div>
+          </div>
+          <div class="profile-section">
+            <h3>Interaction Statistics</h3>
+            <div id="modal-stats" class="profile-stats-grid">Loading...</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="export-btn" id="export-dataset-btn">💾 Export Versioned Dataset</button>
+          <span class="export-status" id="export-status"></span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>
