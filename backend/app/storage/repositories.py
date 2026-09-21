@@ -50,6 +50,7 @@ class RawRepository:
         model: str,
         latency_ms: float = 0.0,
         user_id: str = "local_user",
+        provider: str = "local",
     ) -> None:
         now = utc_now()
         with self.manager.get_connection() as conn:
@@ -61,25 +62,49 @@ class RawRepository:
                 """,
                 (conversation_id, content[:30], now, now),
             )
-            conn.execute(
-                """
-                INSERT INTO messages (id, conversation_id, user_id, role, content, model, latency_ms, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO NOTHING
-                """,
-                (msg_id, conversation_id, user_id, role, content, model, latency_ms, now),
-            )
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+            if "provider" in cols and "message_id" in cols:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO messages (message_id, id, conversation_id, user_id, role, content, model, provider, latency_ms, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (msg_id, msg_id, conversation_id, user_id, role, content, model, provider, latency_ms, now),
+                )
+            elif "message_id" in cols:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO messages (message_id, id, conversation_id, user_id, role, content, model, latency_ms, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (msg_id, msg_id, conversation_id, user_id, role, content, model, latency_ms, now),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO messages (id, conversation_id, user_id, role, content, model, latency_ms, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (msg_id, conversation_id, user_id, role, content, model, latency_ms, now),
+                )
             conn.commit()
 
     def get_message_by_id(self, message_id: str) -> Optional[Dict[str, Any]]:
         """Fetch message by its unique ID to correlate assistant responses with feedback."""
         with self.manager.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM messages WHERE id = ?",
-                (message_id,),
+                "SELECT * FROM messages WHERE message_id = ? OR id = ?",
+                (message_id, message_id),
             )
             row = cursor.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            data = dict(row)
+            if "message_id" not in data or not data["message_id"]:
+                data["message_id"] = data.get("id")
+            if "id" not in data or not data["id"]:
+                data["id"] = data.get("message_id")
+            return data
 
     def save_raw_event(
         self,
@@ -150,18 +175,23 @@ class RawRepository:
         """Stores feedback associated directly with an assistant response."""
         now = utc_now()
         with self.manager.get_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO feedback (id, message_id, conversation_id, user_id, feedback_type, feedback_value, rating, comment, metadata_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    feedback_value = COALESCE(excluded.feedback_value, feedback.feedback_value),
-                    metadata_json = COALESCE(excluded.metadata_json, feedback.metadata_json),
-                    rating = COALESCE(excluded.rating, feedback.rating),
-                    comment = COALESCE(excluded.comment, feedback.comment)
-                """,
-                (fb_id, message_id, conversation_id, user_id, feedback_type, feedback_value, rating, comment, metadata_json, now),
-            )
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(feedback)").fetchall()]
+            if "feedback_id" in cols:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO feedback (feedback_id, id, message_id, conversation_id, user_id, feedback_type, feedback_value, rating, comment, metadata_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (fb_id, fb_id, message_id, conversation_id, user_id, feedback_type, feedback_value, rating, comment, metadata_json, now),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO feedback (id, message_id, conversation_id, user_id, feedback_type, feedback_value, rating, comment, metadata_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (fb_id, message_id, conversation_id, user_id, feedback_type, feedback_value, rating, comment, metadata_json, now),
+                )
             conn.commit()
 
     def get_feedback_by_message_id(self, message_id: str) -> Optional[Dict[str, Any]]:
@@ -171,7 +201,14 @@ class RawRepository:
                 (message_id,),
             )
             row = cursor.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            data = dict(row)
+            if "feedback_id" not in data or not data["feedback_id"]:
+                data["feedback_id"] = data.get("id")
+            if "id" not in data or not data["id"]:
+                data["id"] = data.get("feedback_id")
+            return data
 
     def get_messages(self, conversation_id: str) -> List[Dict[str, Any]]:
         with self.manager.get_connection() as conn:
@@ -179,7 +216,15 @@ class RawRepository:
                 "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
                 (conversation_id,),
             )
-            return [dict(row) for row in cursor.fetchall()]
+            messages = []
+            for row in cursor.fetchall():
+                data = dict(row)
+                if "message_id" not in data or not data["message_id"]:
+                    data["message_id"] = data.get("id")
+                if "id" not in data or not data["id"]:
+                    data["id"] = data.get("message_id")
+                messages.append(data)
+            return messages
 
     def count_raw_events(self) -> int:
         with self.manager.get_connection() as conn:

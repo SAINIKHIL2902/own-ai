@@ -604,6 +604,31 @@ body {
   background: var(--bg-card);
 }
 
+/* Model Attribution Badge */
+.model-attribution-badge {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  user-select: none;
+  font-weight: 400;
+}
+
+.model-attribution-badge.provider-local {
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.model-attribution-badge.provider-gemini {
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
 /* Loading Dots */
 .thinking-indicator {
   display: flex;

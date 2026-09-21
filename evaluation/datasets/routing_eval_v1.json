@@ -1,0 +1,124 @@
+[
+  {
+    "id": "code_easy_01",
+    "task_type": "coding",
+    "difficulty": "easy",
+    "prompt": "Write a Python function to reverse a string.",
+    "required_capabilities": {
+      "coding": 0.85,
+      "instruction_following": 0.80
+    },
+    "evaluation_criteria": [
+      "valid_python",
+      "defines_function",
+      "reverses_string"
+    ]
+  },
+  {
+    "id": "code_med_01",
+    "task_type": "coding",
+    "difficulty": "medium",
+    "prompt": "Write a Python function that implements binary search on a sorted list and returns the index or -1.",
+    "required_capabilities": {
+      "coding": 0.95,
+      "instruction_following": 0.85,
+      "multi_step_reasoning": 0.60
+    },
+    "evaluation_criteria": [
+      "valid_python",
+      "defines_function",
+      "binary_search_logic"
+    ]
+  },
+  {
+    "id": "code_hard_01",
+    "task_type": "coding",
+    "difficulty": "hard",
+    "prompt": "Implement an asynchronous distributed lock manager in Python using Redis SETNX with automatic TTL renewal and race-condition prevention.",
+    "required_capabilities": {
+      "coding": 1.0,
+      "complex_reasoning": 0.90,
+      "instruction_following": 0.90
+    },
+    "evaluation_criteria": [
+      "valid_python",
+      "asyncio_usage",
+      "ttl_renewal",
+      "lock_safety"
+    ]
+  },
+  {
+    "id": "expl_easy_01",
+    "task_type": "explanation",
+    "difficulty": "easy",
+    "prompt": "Explain Kafka partitions using a simple real-world analogy.",
+    "required_capabilities": {
+      "explanation": 0.90,
+      "general_knowledge": 0.80,
+      "instruction_following": 0.70
+    },
+    "evaluation_criteria": [
+      "non_empty",
+      "mentions_partition",
+      "uses_analogy"
+    ]
+  },
+  {
+    "id": "math_easy_01",
+    "task_type": "mathematics",
+    "difficulty": "easy",
+    "prompt": "What is 15 percent of 240? Show the calculation.",
+    "required_capabilities": {
+      "mathematical_reasoning": 0.80,
+      "instruction_following": 0.80
+    },
+    "evaluation_criteria": [
+      "contains_correct_answer_36",
+      "shows_steps"
+    ]
+  },
+  {
+    "id": "math_hard_01",
+    "task_type": "mathematics",
+    "difficulty": "hard",
+    "prompt": "Calculate the Bayesian posterior probability P(Disease|Positive) given prevalence=0.01, sensitivity=0.95, and false positive rate=0.05. Show exact math.",
+    "required_capabilities": {
+      "mathematical_reasoning": 0.95,
+      "multi_step_reasoning": 0.90
+    },
+    "evaluation_criteria": [
+      "bayes_theorem_formula",
+      "correct_posterior_range"
+    ]
+  },
+  {
+    "id": "reason_hard_01",
+    "task_type": "reasoning",
+    "difficulty": "hard",
+    "prompt": "Analyze the consistency trade-offs between Multi-Raft active-active replication vs Paxos in globally distributed financial transactions under network partitions.",
+    "required_capabilities": {
+      "complex_reasoning": 0.95,
+      "multi_step_reasoning": 0.90,
+      "general_knowledge": 0.85
+    },
+    "evaluation_criteria": [
+      "mentions_cap_theorem",
+      "analyzes_network_partition",
+      "evaluates_tradeoffs"
+    ]
+  },
+  {
+    "id": "struct_med_01",
+    "task_type": "structured_output",
+    "difficulty": "medium",
+    "prompt": "Output a valid JSON object representing a user profile with fields: id, username, email, and roles (list). Return ONLY raw JSON.",
+    "required_capabilities": {
+      "structured_output": 0.95,
+      "instruction_following": 0.95
+    },
+    "evaluation_criteria": [
+      "valid_json",
+      "has_required_keys"
+    ]
+  }
+]
