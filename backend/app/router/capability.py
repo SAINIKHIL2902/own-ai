@@ -19,6 +19,7 @@ LOCAL_MODEL_CAPABILITIES: Dict[str, float] = {
     "structured_output": 0.75,
     "data_analysis": 0.50,
     "instruction_following": 0.75,
+    "architecture": 0.35,
 }
 
 DIFFICULTY_MULTIPLIERS = {

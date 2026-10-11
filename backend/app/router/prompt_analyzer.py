@@ -23,16 +23,20 @@ class PromptAnalyzer:
     """
 
     TASK_PATTERNS = {
+        "architecture": re.compile(
+            r"\b(system\s+design|architecture\s+design|microservice\s+architecture|cloud\s+architecture|distributed\s+architecture|fault-?tolerant\s+architecture|high\s+availability\s+architecture|disaster\s+recovery|design\s+a\s+(?:fault-?tolerant|microservice|distributed|scalable|cloud|system|architecture)|design\s+an?\s+architecture|kubernetes\s+operator)\b",
+            re.IGNORECASE,
+        ),
         "coding": re.compile(
-            r"\b(write\s+(?:a\s+)?(?:\w+\s+)?(?:code|function|script|algorithm|program)|implement|def\s+\w+|class\s+\w+|algorithm\b|code\s+(?:in|for|to)|snippet|reverse a (?:string|list|array|linked list)|binary search)\b",
+            r"\b(write\s+(?:a\s+)?(?:[\w-]+\s+){0,3}(?:code|function|script|algorithm|program|operator|controller|parser|server|client|api|service|pipeline)|implement|def\s+\w+|class\s+\w+|algorithm\b|code\s+(?:in|for|to)|snippet|reverse a (?:string|list|array|linked list)|binary search)\b",
             re.IGNORECASE,
         ),
         "debugging": re.compile(
-            r"\b(debug|fix|error|exception|traceback|bug|syntaxerror|issue|fails?|failing|resolve error)\b",
+            r"\b(debug|fix|error|exception|traceback|bug|syntaxerror|issue|fails?|failing|resolve error|memory\s+leaks?|race\s+conditions?|deadlocks?|dangling\s+pointers?|segfault|segmentation\s+fault|buffer\s+overflow)\b",
             re.IGNORECASE,
         ),
         "mathematics": re.compile(
-            r"\b(math|calculate|integral|derivative|equation|algebra|probability|theorem|matrix|variance|statistics)\b|[\+\-\*\/\^\=]{2,}",
+            r"\b(math|calculate|integral|derivative|differential\s+equation|partial\s+differential|equation|algebra|probability|theorem|matrix|variance|statistics|eigenvalue|laplace|fourier|calculus)\b|[\+\-\*\/\^\=]{2,}",
             re.IGNORECASE,
         ),
         "reasoning": re.compile(
@@ -70,7 +74,7 @@ class PromptAnalyzer:
     )
 
     COMPLEXITY_TRIGGERS = re.compile(
-        r"(?i)\b(edge cases?|distributed system|distributed|concurrency|race condition|architecture design|high availability|fault tolerance|trade-?offs?|inconsistencies|deep dive|step-by-step mathematical proof|proofs?|byzantine|consensus|paxos|raft|replication|failure modes?|network partitions?)\b"
+        r"(?i)\b(edge cases?|distributed system|distributed|concurrency|race conditions?|architecture design|high availability|fault tolerance|fault-?tolerant|trade-?offs?|inconsistencies|deep dive|step-by-step mathematical proof|proofs?|prove the theorem|byzantine|consensus|paxos|raft|replication|failure modes?|network partitions?|memory leaks?|deadlocks?|dangling pointers?|atomic\s+(?:aba|operations?)|differential equations?|partial differential|multi-region|multi-threaded|kubernetes operator|custom controllers?|reconcile loops?|admission webhooks?|production-grade|\b\d+\s*million\s*concurrent\b|low latency|high throughput)\b"
     )
 
     def analyze(self, prompt: str, conversation_history: Optional[List[Dict[str, str]]] = None) -> PromptAnalysis:
@@ -120,17 +124,29 @@ class PromptAnalyzer:
         # 5. Complexity score
         raw_complexity = (
             (length / 2000.0) * 0.25
-            + (complexity_hits * 0.25)
-            + (reasoning_requirement * 0.3)
+            + (complexity_hits * 0.30)
+            + (reasoning_requirement * 0.35)
             + (0.2 if structured_output_required else 0.0)
         )
         complexity_score = min(round(raw_complexity, 2), 1.0)
 
         # 6. Difficulty tier: easy, medium, hard
         # Inherent difficulty of the prompt based on complexity and reasoning demands
-        if complexity_score >= 0.65 or reasoning_requirement >= 0.70 or length > 4000:
+        is_hard_semantic = bool(
+            (task_type == "architecture" and (complexity_hits >= 1 or length > 60))
+            or (task_type == "debugging" and bool(re.search(r"(?i)\b(race\s+conditions?|memory\s+leaks?|deadlocks?|dangling\s+pointers?|segfault|atomic\b|concurrency|multi-thread)\b", cleaned)))
+            or (task_type == "mathematics" and bool(re.search(r"(?i)\b(differential\s+equation|partial\s+differential|prove|theorem|proofs?|calculus|laplace|fourier|eigenvalue)\b", cleaned)))
+            or (task_type == "coding" and bool(re.search(r"(?i)\b(kubernetes\s+operator|custom\s+controllers?|reconcile\s+loops?|production-grade|distributed|consensus|compiler|kernel)\b", cleaned)))
+            or (task_type in ["reasoning", "analysis"] and complexity_hits >= 2)
+            or complexity_hits >= 3
+        )
+
+        if is_hard_semantic or complexity_score >= 0.65 or reasoning_requirement >= 0.70 or length > 4000:
             difficulty = "hard"
-        elif complexity_score >= 0.35 or reasoning_requirement >= 0.40:
+            if is_hard_semantic:
+                complexity_score = max(complexity_score, 0.70)
+                reasoning_requirement = max(reasoning_requirement, 0.75)
+        elif complexity_score >= 0.35 or reasoning_requirement >= 0.40 or complexity_hits >= 1:
             difficulty = "medium"
         else:
             difficulty = "easy"
@@ -141,17 +157,37 @@ class PromptAnalyzer:
         }
 
         if task_type == "coding":
-            req_caps["coding"] = 0.90 if difficulty == "easy" else (0.95 if difficulty == "medium" else 1.0)
-            req_caps["instruction_following"] = 0.80
+            if difficulty == "hard":
+                req_caps["coding"] = 0.95
+                req_caps["complex_reasoning"] = 0.85
+                req_caps["multi_step_reasoning"] = 0.80
+                req_caps["instruction_following"] = 0.80
+            elif difficulty == "medium":
+                req_caps["coding"] = 0.90
+                req_caps["instruction_following"] = 0.80
+            else:
+                req_caps["coding"] = 0.85
+                req_caps["instruction_following"] = 0.75
             if "debug" in cleaned.lower():
                 req_caps["debugging"] = 0.85
         elif task_type == "debugging":
             req_caps["debugging"] = 0.95
             req_caps["coding"] = 0.85
-            req_caps["multi_step_reasoning"] = 0.65
+            if difficulty == "hard":
+                req_caps["complex_reasoning"] = 0.85
+                req_caps["multi_step_reasoning"] = 0.80
+            else:
+                req_caps["multi_step_reasoning"] = 0.65
+        elif task_type == "architecture":
+            req_caps["architecture"] = 0.95 if difficulty == "hard" else 0.85
+            req_caps["complex_reasoning"] = 0.90
+            req_caps["multi_step_reasoning"] = 0.85
+            req_caps["instruction_following"] = 0.80
         elif task_type == "mathematics":
-            req_caps["mathematical_reasoning"] = 0.90
-            req_caps["multi_step_reasoning"] = 0.75
+            req_caps["mathematical_reasoning"] = 0.95 if difficulty == "hard" else 0.85
+            req_caps["multi_step_reasoning"] = 0.85 if difficulty == "hard" else 0.65
+            if difficulty == "hard":
+                req_caps["complex_reasoning"] = 0.85
         elif task_type == "reasoning" or task_type == "analysis":
             req_caps["complex_reasoning"] = 0.90 if difficulty == "hard" else 0.75
             req_caps["multi_step_reasoning"] = 0.80

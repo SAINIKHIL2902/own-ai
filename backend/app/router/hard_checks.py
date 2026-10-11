@@ -29,11 +29,14 @@ class HardCapabilityChecker:
                 "Prompt requires extensive long-document context beyond local model memory capability.",
             )
 
-        # 3. Hard Extreme Reasoning / Proofs
-        if analysis.task_type == "reasoning" and analysis.difficulty == "hard" and analysis.reasoning_requirement >= 0.85:
+        # 3. Hard Extreme Reasoning / Proofs / Complex Architecture
+        if (
+            (analysis.task_type in ["reasoning", "mathematics"] and analysis.difficulty == "hard" and analysis.reasoning_requirement >= 0.85)
+            or (analysis.task_type == "architecture" and analysis.difficulty == "hard")
+        ):
             return (
                 False,
-                "Task requires multi-step formal deductive reasoning exceeding local 1B-3B model reasoning ceiling.",
+                f"Task requires advanced {analysis.task_type} exceeding local 1B-3B model reasoning ceiling.",
             )
 
         return (True, "Passed hard capability checks.")
