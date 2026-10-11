@@ -18,7 +18,8 @@ class MockGeminiClient(BaseLLMClient):
 
     async def generate(self, messages, model=None):
         self.received_messages = list(messages)
-        return {"model": model or "gemini-2.5-flash", "response": "Response with sensitive info redacted."}
+        return {"model": model or "gemini-3.5-flash-lite", "response": "Response with sensitive info redacted."}
+
 
 
 class MockOllamaClient:
