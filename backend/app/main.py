@@ -76,6 +76,12 @@ ollama_client = OllamaClient()
 
 class MainOllamaAdapter:
     async def generate(self, messages, model=None):
+        if not model:
+            try:
+                from app.training.deployment import model_deployment_manager
+                model = model_deployment_manager.get_current_model()
+            except Exception:
+                model = settings.OLLAMA_MODEL
         target_model = model or settings.OLLAMA_MODEL
         res = await ollama_client.generate_chat(messages=messages, model=target_model)
         return {
@@ -350,4 +356,154 @@ async def delete_memory(memory_id: str, soft: bool = True):
             detail=f"Memory '{memory_id}' not found.",
         )
     return {"status": "ok", "deleted": True, "memory_id": memory_id, "soft": soft}
+
+
+# ==============================================================================
+# PHASE 5 ENDPOINTS: BEHAVIOR-BASED LOCAL MODEL TRAINING & DEPLOYMENT
+# ==============================================================================
+from app.training.models import (
+    ActivateRunRequest,
+    ConsentRequest,
+    DatasetBuildRequest,
+    EvaluateRunRequest,
+    PackageRunRequest,
+    RollbackRunRequest,
+    TrainingConfig,
+    TrainingRunCreateRequest,
+)
+from app.training.service import training_service
+
+
+@app.get("/api/training/status", summary="Get Model Training Pipeline Status")
+async def get_training_status():
+    """Returns overview of active model, consent status, and recent training runs."""
+    return training_service.get_status()
+
+
+@app.get("/api/training/consent", summary="Get User Training Consent")
+async def get_training_consent(user_id: str = "local_user"):
+    """Check whether the user has opted in to behavior-based model training."""
+    consent = training_service.get_consent(user_id=user_id)
+    return consent.to_dict()
+
+
+@app.post("/api/training/consent", summary="Update User Training Consent")
+async def set_training_consent(req: ConsentRequest):
+    """Opt-in or opt-out of training data extraction and model fine-tuning."""
+    consent = training_service.set_consent(user_id=req.user_id, opted_in=req.opted_in)
+    return consent.to_dict()
+
+
+@app.post("/api/training/dataset", summary="Build Curated Training Dataset")
+async def build_training_dataset(req: DatasetBuildRequest):
+    """
+    Extract sanitized, consent-aware user interactions and build a reproducible
+    JSONL train/val dataset.
+    """
+    cfg = TrainingConfig()
+    if req.base_model:
+        cfg.base_model = req.base_model
+    if req.train_val_split is not None:
+        cfg.train_val_split = req.train_val_split
+
+    try:
+        manifest = training_service.prepare_dataset(config=cfg, user_id=req.user_id)
+        return manifest
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Dataset build failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/training/runs", summary="Create Training Run & Cloud Bundle")
+async def create_training_run(req: TrainingRunCreateRequest):
+    """
+    Register a training run and generate a self-contained Cloud GPU bundle (.zip)
+    ready for execution on Google Colab (Free T4 GPU) or Kaggle.
+    """
+    cfg = TrainingConfig()
+    if req.base_model:
+        cfg.base_model = req.base_model
+    if req.num_epochs is not None:
+        cfg.num_epochs = req.num_epochs
+    if req.batch_size is not None:
+        cfg.batch_size = req.batch_size
+    if req.learning_rate is not None:
+        cfg.learning_rate = req.learning_rate
+    if req.candidate_tag:
+        cfg.candidate_tag = req.candidate_tag
+
+    result = training_service.initiate_training_run(
+        dataset_version=req.dataset_version,
+        config=cfg,
+        user_id=req.user_id,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error"))
+    return result
+
+
+@app.get("/api/training/runs", summary="List All Training Runs")
+async def list_training_runs(limit: int = 20):
+    """List recent training runs and their current statuses."""
+    runs = training_service.repo.list_runs(limit=limit)
+    return [r.to_dict() for r in runs]
+
+
+@app.get("/api/training/runs/{run_id}", summary="Get Training Run Details")
+async def get_training_run(run_id: str):
+    """Retrieve details for a specific training run."""
+    run = training_service.repo.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run '{run_id}' not found.")
+    return run.to_dict()
+
+
+@app.post("/api/training/evaluate", summary="Evaluate Candidate Model")
+async def evaluate_candidate(req: EvaluateRunRequest):
+    """Run fixed benchmark suite on a trained candidate adapter."""
+    try:
+        res = await training_service.evaluate_candidate(
+            run_id=req.run_id,
+            adapter_path=req.adapter_path,
+            mock_eval=req.mock_eval,
+        )
+        return res
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Candidate evaluation failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/training/package", summary="Package Candidate into Ollama Modelfile")
+async def package_candidate(req: PackageRunRequest):
+    """Generate Modelfile and register candidate with Ollama."""
+    res = await training_service.package_candidate(run_id=req.run_id)
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("message"))
+    return res
+
+
+@app.post("/api/training/activate", summary="Activate Candidate Model")
+async def activate_candidate(req: ActivateRunRequest):
+    """
+    Perform pre-flight sanity checks and atomically activate the fine-tuned
+    candidate model for local routing and inference.
+    """
+    res = await training_service.activate_model(run_id=req.run_id)
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("message"))
+    return res
+
+
+@app.post("/api/training/rollback", summary="Rollback Active Model to Baseline")
+async def rollback_model(req: Optional[RollbackRunRequest] = None):
+    """Immediately rollback active routing model to base model or previous stable version."""
+    res = training_service.rollback_model()
+    return res
+
 

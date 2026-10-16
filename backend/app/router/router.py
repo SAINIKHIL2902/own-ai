@@ -93,7 +93,12 @@ class ModelRouter:
 
         if is_suitable and is_confident:
             selected_provider = "local"
-            selected_model = settings.OLLAMA_MODEL
+            try:
+                from app.training.deployment import model_deployment_manager
+                active_local = model_deployment_manager.get_current_model()
+            except Exception:
+                active_local = settings.OLLAMA_MODEL
+            selected_model = active_local or settings.OLLAMA_MODEL
             reason = (
                 f"Local model is sufficiently capable (suitability {suitability} >= {min_suitability}) "
                 f"and routing confidence is high ({confidence} >= {min_confidence})."

@@ -362,3 +362,138 @@ ChatService
 - **Filter Tabs**: Instant filtering across memory types.
 - **Card Controls**: Live in-place edit and soft archive/deletion.
 
+---
+
+## Phase 5: Behavior-Based Model Training & Cloud GPU Pipeline
+
+Phase 5 introduces privacy-first model customization: extracting behavioral patterns, formatting reproducible datasets, preparing cloud training bundles for free GPUs (Google Colab T4 / Kaggle), evaluating candidates against a fixed benchmark, and controlled 1-click activation/rollback into the local Ollama runtime.
+
+### 1. Architecture & Lifecycle
+
+```
+Local SQLite Interactions & Feedback
+                 │
+                 ▼
+        User Training Consent Check (Opt-In Required)
+                 │
+                 ▼
+    ConsentAwareExtractor & TrainingSanitizer
+    ├── Secret/Credential Exclusion (Zero API keys, private keys, tokens)
+    ├── Quality Filtering (Exclude thumbs_down & ratings <= 2)
+    └── PII Redaction ([EMAIL_REDACTED], [PHONE_REDACTED])
+                 │
+                 ▼
+          DatasetBuilder
+    ├── ChatML JSONL Generation (train.jsonl, val.jsonl)
+    └── SHA-256 Content Deduplication & Provenance Manifest
+                 │
+                 ▼
+          TrainingRunner
+    └── Exports Cloud GPU Bundle (`cloud_bundle_<run_id>.zip`)
+                 │
+                 ▼
+   ┌──────────────────────────────────────────────┐
+   │ Cloud Training (Google Colab / Kaggle Free)  │
+   │ - Hardware: NVIDIA T4 / A100 GPU             │
+   │ - Method: Hugging Face PEFT LoRA Fine-Tuning │
+   │ - Output: `trained_adapter` weights          │
+   └──────────────────────────────────────────────┘
+                 │
+                 ▼
+          ModelEvaluator (Fixed Benchmark Suite)
+    ├── Instruction Following, Code Style, Explanation Style, Privacy
+    └── Minimum Accuracy Threshold: >= 75%
+                 │
+                 ▼
+          OllamaPackager
+    └── Generates versioned `Modelfile` & imports to Ollama daemon
+                 │
+                 ▼
+       ModelDeploymentManager
+    ├── Pre-flight Health & Smoke Test Verification
+    ├── Atomically Activates Candidate Model for Local Routing
+    └── 1-Click Rollback to Baseline (`llama3.2:1b`)
+```
+
+### 2. Cloud GPU Training Workflow (Google Colab Free T4)
+
+When training without a local discrete GPU (e.g., Apple Silicon or integrated graphics laptops), own-ai offloads only the compute-intensive gradient calculations to cloud GPUs while maintaining full data governance:
+
+1. **Build Dataset & Export Bundle**:
+   ```bash
+   python -m app.training.cli consent --opt-in
+   python -m app.training.cli dataset
+   python -m app.training.cli run --dataset <DATASET_VERSION>
+   ```
+   This generates `data/training/bundles/cloud_bundle_<run_id>.zip`.
+
+2. **Open Google Colab**:
+   - Go to [Google Colab](https://colab.research.google.com/) and create a new notebook.
+   - Set Hardware Accelerator: **Runtime -> Change runtime type -> T4 GPU**.
+
+3. **Run Training in Colab**:
+   ```python
+   # 1. Upload and unpack the bundle
+   !unzip cloud_bundle_<run_id>.zip
+
+   # 2. Install dependencies
+   !pip install -q torch transformers datasets peft accelerate bitsandbytes
+
+   # 3. Train LoRA adapter
+   !python train_gpu.py --data_dir . --output_dir ./trained_adapter --epochs 3
+   ```
+
+4. **Import & Activate Locally**:
+   Download the resulting `trained_adapter` directory and run:
+   ```bash
+   python -m app.training.cli eval --run-id <run_id>
+   python -m app.training.cli package --run-id <run_id>
+   python -m app.training.cli activate --run-id <run_id>
+   ```
+
+### 3. Training CLI Reference
+
+All Phase 5 pipeline stages can be inspected and triggered via the CLI utility:
+
+```bash
+# Check current pipeline status, active model, and consent
+python -m app.training.cli status
+
+# Manage user training consent (opt-in / opt-out)
+python -m app.training.cli consent --opt-in
+python -m app.training.cli consent --opt-out
+
+# Build curated JSONL training dataset
+python -m app.training.cli dataset --split 0.85
+
+# Create training run and cloud bundle
+python -m app.training.cli run --dataset <version> --epochs 3
+
+# Evaluate model candidate against benchmark
+python -m app.training.cli eval --run-id <run_id>
+
+# Package into Ollama Modelfile
+python -m app.training.cli package --run-id <run_id>
+
+# Activate candidate model for routing
+python -m app.training.cli activate --run-id <run_id>
+
+# Immediate rollback to baseline
+python -m app.training.cli rollback
+```
+
+### 4. Phase 5 REST API
+
+- `GET /api/training/status`: Get active model, consent status, and recent runs.
+- `GET /api/training/consent`: Check consent status.
+- `POST /api/training/consent`: Opt-in or opt-out of training data collection.
+- `POST /api/training/dataset`: Build curated, sanitized JSONL dataset.
+- `POST /api/training/runs`: Create training run and generate `.zip` cloud bundle.
+- `GET /api/training/runs`: List all registered runs.
+- `GET /api/training/runs/{run_id}`: Get details for a specific run.
+- `POST /api/training/evaluate`: Evaluate candidate against benchmark suite.
+- `POST /api/training/package`: Generate Modelfile and register with Ollama.
+- `POST /api/training/activate`: Perform pre-flight check and activate candidate model.
+- `POST /api/training/rollback`: Rollback active model to base `llama3.2:1b`.
+
+

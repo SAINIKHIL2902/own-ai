@@ -143,6 +143,36 @@ CREATE INDEX IF NOT EXISTS idx_interests_score ON user_interests(score DESC);
 CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status);
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
+
+-- =============================================================================
+-- PHASE 5 MODEL TRAINING & REGISTRY TABLES
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS training_consent (
+    user_id TEXT PRIMARY KEY,
+    opted_in INTEGER NOT NULL DEFAULT 0,
+    scope TEXT NOT NULL DEFAULT 'behavior_only',
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS model_registry (
+    run_id TEXT PRIMARY KEY,
+    base_model TEXT NOT NULL,
+    dataset_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    metrics_json TEXT,
+    eval_results_json TEXT,
+    artifact_path TEXT,
+    candidate_tag TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 0,
+    rejection_reason TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_registry_status ON model_registry(status);
+CREATE INDEX IF NOT EXISTS idx_model_registry_active ON model_registry(is_active);
 """
 
 

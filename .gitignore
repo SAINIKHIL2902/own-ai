@@ -33,6 +33,11 @@ data/events/*
 data/exports/*
 !data/exports/.gitkeep
 
+# Training datasets & bundles
+data/training/**
+!data/training/
+!data/training/.gitkeep
+
 # Evaluation reports
 evaluation/reports/*
 !evaluation/reports/.gitkeep
@@ -40,4 +45,6 @@ evaluation/reports/*
 # Archives and backups
 *.zip
 *.tar.gz
+
+
 

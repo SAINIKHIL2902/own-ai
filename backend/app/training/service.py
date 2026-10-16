@@ -1,0 +1,129 @@
+import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from app.config.settings import settings
+from app.training.dataset import DatasetBuilder, dataset_builder
+from app.training.deployment import ModelDeploymentManager, model_deployment_manager
+from app.training.evaluation import ModelEvaluator, model_evaluator
+from app.training.models import RunStatus, TrainingConfig, TrainingConsentRecord, TrainingRunRecord
+from app.training.packaging import OllamaPackager, ollama_packager
+from app.training.repository import TrainingRepository, training_repo
+from app.training.runner import TrainingRunner, training_runner
+
+logger = logging.getLogger(__name__)
+
+
+class TrainingService:
+    """
+    Unified application service for Phase 5 behavior-based local model training,
+    dataset curation, cloud GPU bundling, and controlled model deployment.
+    """
+
+    def __init__(
+        self,
+        repository: Optional[TrainingRepository] = None,
+        builder: Optional[DatasetBuilder] = None,
+        runner: Optional[TrainingRunner] = None,
+        packager: Optional[OllamaPackager] = None,
+        deployment: Optional[ModelDeploymentManager] = None,
+    ):
+        self.repo = repository or training_repo
+        self.builder = builder or dataset_builder
+        self.runner = runner or training_runner
+        self.packager = packager or ollama_packager
+        self.deployment = deployment or model_deployment_manager
+
+    # 1. Consent
+    def get_consent(self, user_id: str = "local_user") -> TrainingConsentRecord:
+        consent = self.repo.get_consent(user_id)
+        if not consent:
+            return TrainingConsentRecord(user_id=user_id, opted_in=False, scope="behavior_only")
+        return consent
+
+    def set_consent(self, user_id: str = "local_user", opted_in: bool = False) -> TrainingConsentRecord:
+        return self.repo.set_consent(user_id=user_id, opted_in=opted_in)
+
+    # 2. Dataset Preparation
+    def prepare_dataset(
+        self,
+        config: Optional[TrainingConfig] = None,
+        user_id: str = "local_user",
+    ) -> Dict[str, Any]:
+        cfg = config or TrainingConfig()
+        return self.builder.build_dataset(config=cfg, user_id=user_id)
+
+    # 3. Training Run & Cloud Bundle
+    def initiate_training_run(
+        self,
+        dataset_version: str,
+        config: Optional[TrainingConfig] = None,
+        user_id: str = "local_user",
+    ) -> Dict[str, Any]:
+        cfg = config or TrainingConfig()
+        run = self.runner.create_run(config=cfg, dataset_version=dataset_version, user_id=user_id)
+
+        if run.status == RunStatus.FAILED.value:
+            return {
+                "success": False,
+                "run_id": run.run_id,
+                "error": run.error_message,
+            }
+
+        bundle_path = self.runner.prepare_cloud_bundle(run.run_id)
+        return {
+            "success": True,
+            "run_id": run.run_id,
+            "status": RunStatus.TRAINING.value,
+            "candidate_tag": run.candidate_tag,
+            "cloud_bundle_path": str(bundle_path),
+            "instructions": "Upload cloud_bundle.zip to Google Colab with free T4 GPU to train.",
+        }
+
+    # 4. Evaluation & Approval
+    async def evaluate_candidate(
+        self,
+        run_id: str,
+        adapter_path: Optional[str] = None,
+        mock_eval: bool = True,
+    ) -> Dict[str, Any]:
+        run = await self.runner.complete_and_evaluate_run(
+            run_id=run_id,
+            adapter_path=adapter_path or "trained_adapter",
+            mock_eval=mock_eval,
+        )
+        return {
+            "run_id": run.run_id,
+            "status": run.status,
+            "eval_results": run.to_dict().get("eval_results", {}),
+            "rejection_reason": run.rejection_reason,
+        }
+
+    # 5. Packaging
+    async def package_candidate(self, run_id: str) -> Dict[str, Any]:
+        success, msg, details = await self.packager.package_and_register(run_id=run_id)
+        return {"success": success, "message": msg, "details": details}
+
+    # 6. Deployment & Rollback
+    async def activate_model(self, run_id: str) -> Dict[str, Any]:
+        success, msg, details = await self.deployment.activate_candidate(run_id=run_id)
+        return {"success": success, "message": msg, "details": details}
+
+    def rollback_model(self) -> Dict[str, Any]:
+        return self.deployment.rollback()
+
+    # 7. Status & Readiness
+    def get_status(self) -> Dict[str, Any]:
+        active_model = self.deployment.get_current_model()
+        runs = self.repo.list_runs(limit=10)
+        consent = self.get_consent()
+        return {
+            "active_model": active_model,
+            "baseline_model": settings.OLLAMA_MODEL,
+            "training_consent": consent.to_dict(),
+            "total_registered_runs": len(runs),
+            "recent_runs": [r.to_dict() for r in runs[:5]],
+        }
+
+
+training_service = TrainingService()
