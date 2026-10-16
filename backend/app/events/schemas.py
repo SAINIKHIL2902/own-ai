@@ -36,3 +36,17 @@ class FeedbackEvent(BaseModel):
     rating: Optional[int] = None
     comment: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+
+
+class MemoryEvent(BaseModel):
+    event_id: str = Field(default_factory=lambda: generate_event_id("mem_evt"))
+    event_type: str = "memory_operation"
+    operation: str = "created"  # created, reinforced, reconciled, deleted, updated
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    user_id: str = "local_user"
+    memory_id: str
+    memory_type: str
+    content: str
+    confidence: float = 0.95
+    status: str = "active"
+

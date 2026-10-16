@@ -1,5 +1,7 @@
+from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
+
 
 from app.chat.service import ChatService
 from app.ollama.client import OllamaClient, OllamaConnectionError, OllamaModelNotFoundError
@@ -58,7 +60,9 @@ class MockOllamaClient:
 @pytest.mark.asyncio
 async def test_chat_service_success():
     client = MockOllamaClient()
-    service = ChatService(ollama_client=client)
+    mock_mem = MagicMock()
+    mock_mem.retrieve_relevant_memories.return_value = []
+    service = ChatService(ollama_client=client, memory_svc=mock_mem)
 
     req = ChatRequest(message="What is Python?")
     resp = await service.chat(req)
@@ -70,7 +74,9 @@ async def test_chat_service_success():
 @pytest.mark.asyncio
 async def test_chat_service_history_orchestration():
     client = MockOllamaClient()
-    service = ChatService(ollama_client=client)
+    mock_mem = MagicMock()
+    mock_mem.retrieve_relevant_memories.return_value = []
+    service = ChatService(ollama_client=client, memory_svc=mock_mem)
 
     req = ChatRequest(
         messages=[
@@ -83,6 +89,7 @@ async def test_chat_service_history_orchestration():
 
     assert resp.response == "Hello from mock"
     assert len(client.last_messages) == 3
+
     assert client.last_messages[0] == {"role": "user", "content": "Hi"}
     assert client.last_messages[1] == {"role": "assistant", "content": "Hello!"}
     assert client.last_messages[2] == {"role": "user", "content": "How are you?"}

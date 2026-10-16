@@ -36,6 +36,12 @@
 
       <!-- Sidebar Footer -->
       <div class="sidebar-footer">
+        <button class="sidebar-action-btn" id="view-memory-btn" title="View & manage remembered facts and preferences">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a5 5 0 0 1 5 5v1a5 5 0 0 1-1 9.9V19a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-1.1A5 5 0 0 1 7 8V7a5 5 0 0 1 5-5z"></path>
+          </svg>
+          <span>🧠 Memories (Phase 4)</span>
+        </button>
         <button class="sidebar-action-btn" id="view-profile-btn" title="View modeled interests and behavior">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -43,6 +49,7 @@
           </svg>
           <span>User Profile & Interests</span>
         </button>
+
 
         <div class="system-status-box" id="system-status-box">
           <div class="status-indicator">
@@ -82,6 +89,9 @@
           </div>
         </div>
         <div class="nav-right">
+          <button class="profile-nav-btn" id="top-memory-btn" title="Manage Personal Memories">
+            🧠 Memories
+          </button>
           <button class="profile-nav-btn" id="top-profile-btn" title="View Derived Profile">
             📊 Profile
           </button>
@@ -91,6 +101,7 @@
           </span>
         </div>
       </header>
+
 
       <!-- Chat Messages Scroll Container -->
       <div class="messages-viewport" id="messages-viewport">
@@ -194,8 +205,57 @@
         </div>
       </div>
     </div>
+
+    <!-- Phase 4: Memory Management Modal -->
+    <div class="modal-backdrop" id="memory-modal" style="display: none;">
+      <div class="modal-card memory-modal-card">
+        <div class="modal-header">
+          <div class="modal-header-title">
+            <h2>🧠 Memory & Personalization (Phase 4)</h2>
+            <span class="memory-count-badge" id="memory-count-badge">0 memories</span>
+          </div>
+          <button class="modal-close-btn" id="memory-modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body memory-modal-body">
+          <!-- Add New Memory Card -->
+          <div class="memory-create-card">
+            <h3>Add Memory</h3>
+            <div class="memory-form-row">
+              <input type="text" id="new-memory-content" class="memory-input" placeholder="e.g., I prefer concise answers with bullet points" />
+              <select id="new-memory-type" class="memory-select">
+                <option value="preference">Preference</option>
+                <option value="interest">Interest</option>
+                <option value="goal">Goal</option>
+                <option value="instruction">Instruction</option>
+                <option value="fact">Fact</option>
+                <option value="context">Context</option>
+              </select>
+              <button id="add-memory-btn" class="memory-add-btn">+ Add</button>
+            </div>
+            <div id="memory-add-msg" class="memory-feedback-msg"></div>
+          </div>
+
+          <!-- Memory Filter Tabs -->
+          <div class="memory-filter-bar">
+            <button class="memory-tab active" data-type="all">All</button>
+            <button class="memory-tab" data-type="preference">Preferences</button>
+            <button class="memory-tab" data-type="interest">Interests</button>
+            <button class="memory-tab" data-type="goal">Goals</button>
+            <button class="memory-tab" data-type="instruction">Instructions</button>
+            <button class="memory-tab" data-type="fact">Facts</button>
+            <button class="memory-tab" data-type="context">Context</button>
+          </div>
+
+          <!-- Memory Records List -->
+          <div class="memory-list" id="memory-list-container">
+            <div class="memory-loading">Loading memories...</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>
 </body>
 </html>
+

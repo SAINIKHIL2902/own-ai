@@ -689,8 +689,219 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// ==============================================================================
+// PHASE 4: MEMORY MANAGEMENT UI LOGIC
+// ==============================================================================
+const memoryModal = document.getElementById("memory-modal");
+const topMemoryBtn = document.getElementById("top-memory-btn");
+const viewMemoryBtn = document.getElementById("view-memory-btn");
+const memoryModalCloseBtn = document.getElementById("memory-modal-close-btn");
+const memoryCountBadge = document.getElementById("memory-count-badge");
+const newMemoryContent = document.getElementById("new-memory-content");
+const newMemoryType = document.getElementById("new-memory-type");
+const addMemoryBtn = document.getElementById("add-memory-btn");
+const memoryAddMsg = document.getElementById("memory-add-msg");
+const memoryListContainer = document.getElementById("memory-list-container");
+
+let currentMemoryFilter = "all";
+let cachedMemories = [];
+
+async function openMemoryModal() {
+  memoryModal.style.display = "flex";
+  await loadMemories();
+}
+
+function closeMemoryModal() {
+  memoryModal.style.display = "none";
+}
+
+async function loadMemories() {
+  memoryListContainer.innerHTML = '<div class="memory-loading">Loading memories...</div>';
+  try {
+    const res = await fetch("/memory");
+    if (!res.ok) throw new Error("Failed to load memories");
+    cachedMemories = await res.json();
+    renderMemoryList();
+  } catch (err) {
+    memoryListContainer.innerHTML = `<div class="memory-empty">Error loading memories: ${err.message}</div>`;
+  }
+}
+
+function renderMemoryList() {
+  let filtered = cachedMemories;
+  if (currentMemoryFilter !== "all") {
+    filtered = cachedMemories.filter(m => m.memory_type.toLowerCase() === currentMemoryFilter.toLowerCase());
+  }
+
+  memoryCountBadge.textContent = `${cachedMemories.length} ${cachedMemories.length === 1 ? "memory" : "memories"}`;
+
+  if (filtered.length === 0) {
+    memoryListContainer.innerHTML = '<div class="memory-empty">No memories found for this filter.</div>';
+    return;
+  }
+
+  memoryListContainer.innerHTML = filtered.map(m => {
+    const confPercent = Math.round((m.confidence || 0.95) * 100);
+    const impPercent = Math.round((m.importance || 0.8) * 100);
+    const typeClass = `type-${m.memory_type.toLowerCase()}`;
+    const statusClass = `status-${(m.status || "active").toLowerCase()}`;
+
+    return `
+      <div class="memory-item-card" id="mem-card-${m.memory_id}">
+        <div class="memory-item-header">
+          <div class="memory-tags">
+            <span class="mem-type-badge ${typeClass}">${m.memory_type}</span>
+            <span class="mem-meta-pill" title="Confidence">🎯 ${confPercent}%</span>
+            <span class="mem-meta-pill" title="Importance">⚡ ${impPercent}%</span>
+            <span class="mem-meta-pill" title="Source">${m.source_type}</span>
+            <span class="mem-status-pill ${statusClass}">${m.status}</span>
+          </div>
+          <div class="memory-item-actions">
+            <button class="mem-action-btn edit-mem-btn" data-id="${m.memory_id}" title="Edit Memory">✏️ Edit</button>
+            <button class="mem-action-btn delete delete-mem-btn" data-id="${m.memory_id}" title="Archive Memory">🗑️ Archive</button>
+          </div>
+        </div>
+        <div class="memory-content-display" id="mem-content-${m.memory_id}">${escapeHtml(m.content)}</div>
+      </div>
+    `;
+  }).join("");
+
+  // Attach card event listeners
+  memoryListContainer.querySelectorAll(".delete-mem-btn").forEach(btn => {
+    btn.addEventListener("click", () => handleDeleteMemory(btn.dataset.id));
+  });
+
+  memoryListContainer.querySelectorAll(".edit-mem-btn").forEach(btn => {
+    btn.addEventListener("click", () => handleStartEditMemory(btn.dataset.id));
+  });
+}
+
+async function handleAddMemory() {
+  const content = newMemoryContent.value.trim();
+  const type = newMemoryType.value;
+  if (!content) {
+    memoryAddMsg.textContent = "Please enter memory content.";
+    memoryAddMsg.style.color = "#f87171";
+    return;
+  }
+
+  addMemoryBtn.disabled = true;
+  memoryAddMsg.textContent = "Saving memory...";
+  memoryAddMsg.style.color = "var(--text-secondary)";
+
+  try {
+    const res = await fetch("/memory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: content,
+        memory_type: type,
+        confidence: 0.95,
+        importance: 0.85,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to create memory");
+    }
+
+    newMemoryContent.value = "";
+    memoryAddMsg.textContent = "✓ Memory added successfully!";
+    memoryAddMsg.style.color = "#34d399";
+    setTimeout(() => { memoryAddMsg.textContent = ""; }, 3000);
+    await loadMemories();
+  } catch (err) {
+    memoryAddMsg.textContent = `Error: ${err.message}`;
+    memoryAddMsg.style.color = "#f87171";
+  } finally {
+    addMemoryBtn.disabled = false;
+  }
+}
+
+function handleStartEditMemory(id) {
+  const mem = cachedMemories.find(m => m.memory_id === id);
+  if (!mem) return;
+
+  const contentEl = document.getElementById(`mem-content-${id}`);
+  if (!contentEl) return;
+
+  contentEl.innerHTML = `
+    <div class="memory-edit-area">
+      <input type="text" class="memory-edit-input" id="edit-input-${id}" value="${escapeHtml(mem.content)}" />
+      <button class="mem-action-btn" id="save-edit-${id}" style="background:var(--accent-green);color:#fff;">Save</button>
+      <button class="mem-action-btn" id="cancel-edit-${id}">Cancel</button>
+    </div>
+  `;
+
+  document.getElementById(`save-edit-${id}`).addEventListener("click", async () => {
+    const newText = document.getElementById(`edit-input-${id}`).value.trim();
+    if (!newText) return;
+    try {
+      const res = await fetch(`/memory/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: newText }),
+      });
+      if (res.ok) {
+        await loadMemories();
+      }
+    } catch (e) {
+      alert("Failed to update memory: " + e.message);
+    }
+  });
+
+  document.getElementById(`cancel-edit-${id}`).addEventListener("click", () => {
+    renderMemoryList();
+  });
+}
+
+async function handleDeleteMemory(id) {
+  if (!confirm("Are you sure you want to archive/delete this memory?")) return;
+  try {
+    const res = await fetch(`/memory/${id}?soft=true`, { method: "DELETE" });
+    if (res.ok) {
+      await loadMemories();
+    }
+  } catch (e) {
+    alert("Failed to delete memory: " + e.message);
+  }
+}
+
+// Memory Modal Listeners
+if (topMemoryBtn) topMemoryBtn.addEventListener("click", openMemoryModal);
+if (viewMemoryBtn) viewMemoryBtn.addEventListener("click", openMemoryModal);
+if (memoryModalCloseBtn) memoryModalCloseBtn.addEventListener("click", closeMemoryModal);
+
+if (addMemoryBtn) addMemoryBtn.addEventListener("click", handleAddMemory);
+if (newMemoryContent) {
+  newMemoryContent.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleAddMemory();
+    }
+  });
+}
+
+// Memory Filter Tab Listeners
+document.querySelectorAll(".memory-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".memory-tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    currentMemoryFilter = tab.dataset.type;
+    renderMemoryList();
+  });
+});
+
+window.addEventListener("click", (e) => {
+  if (e.target === memoryModal) {
+    closeMemoryModal();
+  }
+});
+
 // Init
 initStorage();
 pollHealth();
 loadModels();
 setInterval(pollHealth, 10000);
+

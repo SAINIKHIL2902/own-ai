@@ -143,7 +143,7 @@ async def test_gemini_failure_and_capable_local_fallback(tmp_path):
         from app.router.router import RoutingDecision
         mock_route.return_value = RoutingDecision(
             selected_provider="gemini",
-            selected_model="gemini-2.5-flash",
+            selected_model="gemini-3.5-flash-lite",
             local_suitability=0.65,  # Capable enough for fallback
             routing_confidence=0.50,
             task_type="coding",

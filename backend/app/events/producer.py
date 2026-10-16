@@ -7,7 +7,7 @@ from typing import Optional
 from aiokafka import AIOKafkaProducer
 
 from app.config.settings import settings
-from app.events.schemas import FeedbackEvent, InteractionEvent
+from app.events.schemas import FeedbackEvent, InteractionEvent, MemoryEvent
 from app.storage.repositories import raw_repo
 
 logger = logging.getLogger(__name__)
@@ -152,5 +152,39 @@ class EventProducer:
 
         self._spool_locally(event_dict)
 
+    async def publish_memory_event(self, event: MemoryEvent) -> None:
+        """Publish memory lifecycle event and record in raw SQLite."""
+        event_dict = event.model_dump()
+        payload_json = json.dumps(event_dict)
+
+        try:
+            raw_repo.save_raw_event(
+                event_id=event.event_id,
+                event_type=event.event_type,
+                timestamp=event.timestamp,
+                user_id=event.user_id,
+                conversation_id="memory",
+                message_id=event.memory_id,
+                payload_json=payload_json,
+            )
+        except Exception as e:
+            logger.error(f"Failed to persist memory event to SQLite: {e}")
+
+        if self._producer and self._is_connected:
+            try:
+                await self._producer.send_and_wait(
+                    self.topic,
+                    key=event.user_id.encode("utf-8"),
+                    value=event_dict,
+                )
+                logger.info(f"Published memory event {event.event_id} to Kafka")
+                return
+            except Exception as exc:
+                logger.warning(f"Kafka memory send failed: {exc}. Spooling locally.")
+                self._is_connected = False
+
+        self._spool_locally(event_dict)
+
 
 event_producer = EventProducer()
+
