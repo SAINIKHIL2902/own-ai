@@ -36,3 +36,8 @@ data/exports/*
 # Evaluation reports
 evaluation/reports/*
 !evaluation/reports/.gitkeep
+
+# Archives and backups
+*.zip
+*.tar.gz
+
