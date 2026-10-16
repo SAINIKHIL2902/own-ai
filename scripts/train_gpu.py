@@ -16,7 +16,7 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(description="Train LoRA adapter on Cloud GPU (Google Colab / Kaggle)")
-    parser.add_argument("--base_model", type=str, default="meta-llama/Llama-3.2-1B-Instruct")
+    parser.add_argument("--base_model", type=str, default="unsloth/Llama-3.2-1B-Instruct")
     parser.add_argument("--data_dir", type=str, default=".", help="Directory containing train.jsonl and val.jsonl")
     parser.add_argument("--output_dir", type=str, default="./trained_adapter")
     parser.add_argument("--epochs", type=int, default=3)
