@@ -121,7 +121,7 @@ class TrainingRepository:
         if not run:
             return None
 
-        run.status = status.value
+        run.status = status.value if hasattr(status, "value") else str(status)
         run.updated_at = utc_now_iso()
         if metrics is not None:
             run.metrics_json = json.dumps(metrics)

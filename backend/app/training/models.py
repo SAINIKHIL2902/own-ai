@@ -143,3 +143,19 @@ class ActivateRunRequest(BaseModel):
 class RollbackRunRequest(BaseModel):
     reason: Optional[str] = None
 
+
+class ColabExportRequest(BaseModel):
+    user_id: str = "local_user"
+    base_model: Optional[str] = None
+    num_epochs: Optional[int] = None
+    batch_size: Optional[int] = None
+    sync_to_gdrive: bool = True
+
+
+class ColabImportRequest(BaseModel):
+    version_id: Optional[str] = None
+    auto_evaluate: bool = True
+    auto_activate: bool = True
+    mock_eval: bool = True
+
+

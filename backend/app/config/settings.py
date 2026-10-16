@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     MEMORY_RELEVANCE_CONFIDENCE_WEIGHT: float = 0.25
     MEMORY_RELEVANCE_RECENCY_WEIGHT: float = 0.15
 
+    # Phase 5 - Cloud GPU & Google Drive Sync
+    GOOGLE_DRIVE_SYNC_DIR: str = "data/google_drive_sync"
+
     # Load from .env file if present
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -56,6 +59,13 @@ class Settings(BaseSettings):
     @property
     def resolved_db_path(self) -> Path:
         p = Path(self.SQLITE_DB_PATH)
+        if p.is_absolute():
+            return p
+        return PROJECT_ROOT / p
+
+    @property
+    def resolved_google_drive_sync_dir(self) -> Path:
+        p = Path(self.GOOGLE_DRIVE_SYNC_DIR)
         if p.is_absolute():
             return p
         return PROJECT_ROOT / p

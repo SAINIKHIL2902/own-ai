@@ -6,10 +6,13 @@ from app.config.settings import settings
 from app.training.dataset import DatasetBuilder, dataset_builder
 from app.training.deployment import ModelDeploymentManager, model_deployment_manager
 from app.training.evaluation import ModelEvaluator, model_evaluator
+from app.training.downloader import ModelDownloader, model_downloader
+from app.training.gdrive_sync import GoogleDriveSyncManager, gdrive_sync
 from app.training.models import RunStatus, TrainingConfig, TrainingConsentRecord, TrainingRunRecord
 from app.training.packaging import OllamaPackager, ollama_packager
 from app.training.repository import TrainingRepository, training_repo
 from app.training.runner import TrainingRunner, training_runner
+from app.training.unit_builder import UnifiedTrainingUnitBuilder, unified_unit_builder
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +30,16 @@ class TrainingService:
         runner: Optional[TrainingRunner] = None,
         packager: Optional[OllamaPackager] = None,
         deployment: Optional[ModelDeploymentManager] = None,
+        unit_builder: Optional[UnifiedTrainingUnitBuilder] = None,
+        downloader: Optional[ModelDownloader] = None,
     ):
         self.repo = repository or training_repo
         self.builder = builder or dataset_builder
         self.runner = runner or training_runner
         self.packager = packager or ollama_packager
         self.deployment = deployment or model_deployment_manager
+        self.unit_builder = unit_builder or unified_unit_builder
+        self.downloader = downloader or model_downloader
 
     # 1. Consent
     def get_consent(self, user_id: str = "local_user") -> TrainingConsentRecord:
@@ -125,5 +132,45 @@ class TrainingService:
             "recent_runs": [r.to_dict() for r in runs[:5]],
         }
 
+    # 8. Unified Google Colab & Google Drive Workflow
+    def export_colab_unit(
+        self,
+        config: Optional[TrainingConfig] = None,
+        user_id: str = "local_user",
+        sync_to_gdrive: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Gathers all interactions, preferences, and memories into one cohesive unit,
+        generates the Colab training notebook, and syncs directly to Google Drive.
+        """
+        return self.unit_builder.gather_and_build_unit(
+            config=config,
+            user_id=user_id,
+            sync_to_gdrive=sync_to_gdrive,
+        )
+
+    async def import_colab_model(
+        self,
+        version_id: Optional[str] = None,
+        auto_evaluate: bool = True,
+        auto_activate: bool = True,
+        mock_eval: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Retrieves the latest or specified trained model checkpoint from Google Drive,
+        evaluates against the fixed benchmark, packages with Ollama, and activates.
+        """
+        return await self.downloader.fetch_and_deploy_model(
+            version_id=version_id,
+            auto_evaluate=auto_evaluate,
+            auto_activate=auto_activate,
+            mock_eval=mock_eval,
+        )
+
+    def list_colab_models(self) -> Dict[str, Any]:
+        """Lists all versioned models available in Google Drive and local registry."""
+        return self.downloader.list_all_models()
+
 
 training_service = TrainingService()
+

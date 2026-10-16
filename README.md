@@ -415,41 +415,34 @@ Local SQLite Interactions & Feedback
     └── 1-Click Rollback to Baseline (`llama3.2:1b`)
 ```
 
-### 2. Cloud GPU Training Workflow (Google Colab Free T4)
+### 2. Unified Google Colab & Google Drive Workflow
 
-When training without a local discrete GPU (e.g., Apple Silicon or integrated graphics laptops), own-ai offloads only the compute-intensive gradient calculations to cloud GPUs while maintaining full data governance:
+For zero-friction cloud GPU fine-tuning without manual zip handling:
 
-1. **Build Dataset & Export Bundle**:
+1. **One-Command Unified Gathering & Google Drive Sync**:
    ```bash
-   python -m app.training.cli consent --opt-in
-   python -m app.training.cli dataset
-   python -m app.training.cli run --dataset <DATASET_VERSION>
+   python -m app.training.cli export-colab --epochs 3
    ```
-   This generates `data/training/bundles/cloud_bundle_<run_id>.zip`.
+   - Automatically gathers chat turns, behavioral profile, and active memories into **one cohesive unit**.
+   - Generates the interactive `colab_train.ipynb` notebook.
+   - Automatically syncs to Google Drive under `own-ai/datasets/<version_id>/`.
 
-2. **Open Google Colab**:
-   - Go to [Google Colab](https://colab.research.google.com/) and create a new notebook.
-   - Set Hardware Accelerator: **Runtime -> Change runtime type -> T4 GPU**.
+2. **Train on Google Colab (1-Click Run)**:
+   - Open the generated `colab_train.ipynb` in Google Colab (Runtime -> T4 GPU).
+   - Click **Runtime -> Run all**:
+     1. Mounts Google Drive (`/content/drive/MyDrive/own-ai/datasets/<version_id>/`).
+     2. Runs PEFT LoRA training on the T4 GPU.
+     3. Saves the completed model adapter and version metadata directly back to Google Drive (`own-ai/models/<version_id>/`).
 
-3. **Run Training in Colab**:
-   ```python
-   # 1. Upload and unpack the bundle
-   !unzip cloud_bundle_<run_id>.zip
-
-   # 2. Install dependencies
-   !pip install -q torch transformers datasets peft accelerate bitsandbytes
-
-   # 3. Train LoRA adapter
-   !python train_gpu.py --data_dir . --output_dir ./trained_adapter --epochs 3
-   ```
-
-4. **Import & Activate Locally**:
-   Download the resulting `trained_adapter` directory and run:
+3. **One-Command Model Download, Packaging & Activation**:
    ```bash
-   python -m app.training.cli eval --run-id <run_id>
-   python -m app.training.cli package --run-id <run_id>
-   python -m app.training.cli activate --run-id <run_id>
+   python -m app.training.cli download-model
    ```
+   - Discovers the latest versioned model in Google Drive.
+   - Downloads and unpacks the weights with its unique version ID.
+   - Evaluates against the fixed benchmark suite.
+   - Generates the Ollama `Modelfile` and imports it into Ollama.
+   - Atomically activates the fine-tuned candidate model for local routing.
 
 ### 3. Training CLI Reference
 
@@ -463,27 +456,28 @@ python -m app.training.cli status
 python -m app.training.cli consent --opt-in
 python -m app.training.cli consent --opt-out
 
-# Build curated JSONL training dataset
-python -m app.training.cli dataset --split 0.85
+# One-command unified gathering and Google Drive sync for Colab
+python -m app.training.cli export-colab --epochs 3
 
-# Create training run and cloud bundle
-python -m app.training.cli run --dataset <version> --epochs 3
+# One-command download, evaluation, packaging, and activation from Google Drive
+python -m app.training.cli download-model
 
-# Evaluate model candidate against benchmark
-python -m app.training.cli eval --run-id <run_id>
+# Download a specific version ID
+python -m app.training.cli download-model --version <version_id>
 
-# Package into Ollama Modelfile
-python -m app.training.cli package --run-id <run_id>
+# List all versioned models available in Google Drive and local registry
+python -m app.training.cli list-models
 
-# Activate candidate model for routing
-python -m app.training.cli activate --run-id <run_id>
-
-# Immediate rollback to baseline
+# Immediate rollback to baseline default (llama3.2:1b)
 python -m app.training.cli rollback
 ```
 
 ### 4. Phase 5 REST API
 
+- `POST /api/training/colab/export`: Gather all data into one unit, generate Colab notebook, and sync directly to Google Drive.
+- `POST /api/training/colab/import`: Download versioned model from Google Drive, evaluate, package with Ollama, and activate.
+- `GET /api/training/colab/models`: List available versioned models in Google Drive and local registry.
+- `GET /api/training/colab/notebook/{version_id}`: Download the generated Colab notebook (.ipynb).
 - `GET /api/training/status`: Get active model, consent status, and recent runs.
 - `GET /api/training/consent`: Check consent status.
 - `POST /api/training/consent`: Opt-in or opt-out of training data collection.
@@ -495,5 +489,6 @@ python -m app.training.cli rollback
 - `POST /api/training/package`: Generate Modelfile and register with Ollama.
 - `POST /api/training/activate`: Perform pre-flight check and activate candidate model.
 - `POST /api/training/rollback`: Rollback active model to base `llama3.2:1b`.
+
 
 

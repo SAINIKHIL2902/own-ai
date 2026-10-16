@@ -363,6 +363,8 @@ async def delete_memory(memory_id: str, soft: bool = True):
 # ==============================================================================
 from app.training.models import (
     ActivateRunRequest,
+    ColabExportRequest,
+    ColabImportRequest,
     ConsentRequest,
     DatasetBuildRequest,
     EvaluateRunRequest,
@@ -505,5 +507,79 @@ async def rollback_model(req: Optional[RollbackRunRequest] = None):
     """Immediately rollback active routing model to base model or previous stable version."""
     res = training_service.rollback_model()
     return res
+
+
+# ==============================================================================
+# GOOGLE COLAB & GOOGLE DRIVE END-TO-END WORKFLOW ENDPOINTS
+# ==============================================================================
+@app.post("/api/training/colab/export", summary="Gather Data & Export Unified Unit to Google Colab / Drive")
+async def export_colab_unit(req: ColabExportRequest):
+    """
+    Gathers all interactions, behavioral preferences, and memories into one cohesive unit,
+    generates the Colab training notebook, and syncs directly to Google Drive.
+    """
+    cfg = TrainingConfig()
+    if req.base_model:
+        cfg.base_model = req.base_model
+    if req.num_epochs is not None:
+        cfg.num_epochs = req.num_epochs
+    if req.batch_size is not None:
+        cfg.batch_size = req.batch_size
+
+    try:
+        res = training_service.export_colab_unit(
+            config=cfg,
+            user_id=req.user_id,
+            sync_to_gdrive=req.sync_to_gdrive,
+        )
+        return res
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Colab export failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/training/colab/import", summary="Download and Deploy Versioned Model from Google Drive")
+async def import_colab_model(req: ColabImportRequest):
+    """
+    Retrieves the latest or specified versioned model checkpoint from Google Drive,
+    evaluates against the benchmark suite, packages into Ollama, and activates.
+    """
+    try:
+        res = await training_service.import_colab_model(
+            version_id=req.version_id,
+            auto_evaluate=req.auto_evaluate,
+            auto_activate=req.auto_activate,
+            mock_eval=req.mock_eval,
+        )
+        return res
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Colab model import failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.get("/api/training/colab/models", summary="List Available Versioned Models in Cloud & Local")
+async def list_colab_models():
+    """Lists all versioned model checkpoints in Google Drive and local SQLite registry."""
+    return training_service.list_colab_models()
+
+
+@app.get("/api/training/colab/notebook/{version_id}", summary="Download Colab Training Notebook")
+async def get_colab_notebook(version_id: str):
+    """Download the generated Jupyter/Colab notebook (.ipynb) for a specific training unit."""
+    nb_file = PROJECT_ROOT / "data" / "training" / "units" / version_id / "colab_train.ipynb"
+    if not nb_file.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Notebook for '{version_id}' not found.")
+    return FileResponse(
+        path=str(nb_file),
+        filename=f"colab_train_{version_id}.ipynb",
+        media_type="application/x-ipynb+json",
+    )
+
 
 

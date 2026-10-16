@@ -41,6 +41,21 @@ def main():
     # rollback
     subparsers.add_parser("rollback", help="Revert active model to baseline default (llama3.2:1b)")
 
+    # export-colab
+    colab_exp = subparsers.add_parser("export-colab", help="Gather all data into one unit and sync directly to Google Colab / Drive")
+    colab_exp.add_argument("--user_id", default="local_user", help="User ID to extract interactions for")
+    colab_exp.add_argument("--epochs", type=int, default=3, help="Training epochs")
+    colab_exp.add_argument("--no-gdrive-sync", action="store_true", help="Skip Google Drive sync")
+
+    # download-model
+    dl_parser = subparsers.add_parser("download-model", help="Download latest or versioned model from Google Drive, package, and activate")
+    dl_parser.add_argument("--version", default=None, help="Specific model version ID to download (defaults to latest)")
+    dl_parser.add_argument("--no-activate", action="store_true", help="Do not activate model automatically")
+    dl_parser.add_argument("--live-eval", action="store_true", help="Run live inference evaluation instead of mock")
+
+    # list-models
+    subparsers.add_parser("list-models", help="List versioned models available in Google Drive and local registry")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -74,6 +89,30 @@ def main():
 
     elif args.command == "rollback":
         res = training_service.rollback_model()
+        print(json.dumps(res, indent=2))
+
+    elif args.command == "export-colab":
+        config = TrainingConfig(num_epochs=args.epochs)
+        res = training_service.export_colab_unit(
+            config=config,
+            user_id=args.user_id,
+            sync_to_gdrive=not args.no_gdrive_sync,
+        )
+        print(json.dumps(res, indent=2))
+        print(f"\n🚀 Ready for Google Colab! Open: {res.get('colab_notebook_path')}")
+
+    elif args.command == "download-model":
+        res = asyncio.run(training_service.import_colab_model(
+            version_id=args.version,
+            auto_activate=not args.no_activate,
+            mock_eval=not args.live_eval,
+        ))
+        print(json.dumps(res, indent=2))
+        if res.get("success"):
+            print(f"\n🎉 Successfully downloaded and deployed model version '{res.get('version_id')}' as '{res.get('candidate_tag')}'!")
+
+    elif args.command == "list-models":
+        res = training_service.list_colab_models()
         print(json.dumps(res, indent=2))
 
 
