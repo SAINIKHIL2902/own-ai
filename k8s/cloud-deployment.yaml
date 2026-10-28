@@ -46,7 +46,8 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
+      storage: 2Gi
+
 ---
 # 4. Persistent Storage for Ollama GGUF Models (Downloaded once in cloud)
 apiVersion: v1
@@ -59,7 +60,8 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 15Gi
+      storage: 8Gi
+
 ---
 # 5. Ollama LLM Engine Deployment
 apiVersion: apps/v1
