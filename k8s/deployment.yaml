@@ -94,7 +94,7 @@ spec:
     spec:
       containers:
         - name: own-ai-app
-          image: dockerhub8790974548/own-ai:v1.0.1
+          image: dockerhub8790974548/own-ai:v1.0.2
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
