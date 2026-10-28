@@ -13,6 +13,7 @@ from app.storage.models import (
     PreferenceRecord,
     RawEventRecord,
     ResponseStyleRecord,
+    SkillRecord,
     utc_now,
 )
 
@@ -434,9 +435,94 @@ class ProfileRepository:
             cursor = conn.execute("SELECT * FROM user_behavior_stats")
             return {row["stat_key"]: row["stat_value"] for row in cursor.fetchall()}
 
+    def upsert_skill(self, record: SkillRecord) -> None:
+        with self.manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_skills (skill_name, level, category, years_experience, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(skill_name) DO UPDATE SET
+                    level = excluded.level,
+                    category = excluded.category,
+                    years_experience = excluded.years_experience,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    record.skill_name.strip(),
+                    record.level,
+                    record.category,
+                    record.years_experience,
+                    record.created_at,
+                    record.updated_at,
+                ),
+            )
+            conn.commit()
+
+    def get_skill(self, skill_name: str) -> Optional[SkillRecord]:
+        with self.manager.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM user_skills WHERE LOWER(skill_name) = LOWER(?)",
+                (skill_name.strip(),),
+            ).fetchone()
+            if not row:
+                return None
+            return SkillRecord(
+                skill_name=row["skill_name"],
+                level=row["level"],
+                category=row["category"],
+                years_experience=row["years_experience"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+
+    def get_all_skills(self) -> List[Dict[str, Any]]:
+        with self.manager.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM user_skills ORDER BY category ASC, skill_name ASC"
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def delete_skill(self, skill_name: str) -> bool:
+        with self.manager.get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM user_skills WHERE LOWER(skill_name) = LOWER(?)",
+                (skill_name.strip(),),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def bulk_upsert_skills(self, skills: List[Dict[str, Any]]) -> int:
+        now = utc_now()
+        count = 0
+        with self.manager.get_connection() as conn:
+            for item in skills:
+                name = item.get("skill_name") or item.get("name")
+                if not name or not isinstance(name, str) or not name.strip():
+                    continue
+                name = name.strip()
+                level = item.get("level", "Intermediate")
+                category = item.get("category", "General")
+                years = float(item.get("years_experience", 0.0) or 0.0)
+                conn.execute(
+                    """
+                    INSERT INTO user_skills (skill_name, level, category, years_experience, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(skill_name) DO UPDATE SET
+                        level = excluded.level,
+                        category = excluded.category,
+                        years_experience = excluded.years_experience,
+                        updated_at = excluded.updated_at
+                    """,
+                    (name, level, category, years, now, now),
+                )
+                count += 1
+            conn.commit()
+        return count
+
     def get_full_profile(self) -> Dict[str, Any]:
         return {
             "schema_version": 1,
+            "skills": self.get_all_skills(),
             "interests": self.get_all_interests(),
             "preferences": self.get_all_preferences(),
             "response_styles": self.get_all_response_styles(),

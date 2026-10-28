@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     # Phase 5 - Cloud GPU & Google Drive Sync
     GOOGLE_DRIVE_SYNC_DIR: str = "data/google_drive_sync"
 
+    # Cloud PostgreSQL / Supabase Sync (15-Day Cadence & 60-Day Training)
+    POSTGRES_CLOUD_URL: str | None = None
+    SUPABASE_URL: str | None = None
+    SUPABASE_KEY: str | None = None
+    CLOUD_SYNC_INTERVAL_DAYS: int = 15
+    CLOUD_TRAIN_INTERVAL_DAYS: int = 60
+    CLOUD_SYNC_USER_ID: str = "local_user"
+
     # Load from .env file if present
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

@@ -12,7 +12,8 @@ async def test_deployment_activation_and_rollback():
     repo = TrainingRepository()
     manager = ModelDeploymentManager(repository=repo)
 
-    # 1. Initially active model is baseline
+    # 1. Ensure active model is reset to baseline
+    manager.rollback()
     assert manager.get_current_model() == settings.OLLAMA_MODEL
 
     # 2. Register run and set ready for approval

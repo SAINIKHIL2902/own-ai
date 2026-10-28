@@ -56,6 +56,20 @@ def main():
     # list-models
     subparsers.add_parser("list-models", help="List versioned models available in Google Drive and local registry")
 
+    # sync-cloud
+    sc_parser = subparsers.add_parser("sync-cloud", help="Run 15-day delta sync of sanitized profile, interests, and chat turns to PostgreSQL")
+    sc_parser.add_argument("--user_id", default="local_user", help="User ID to sync")
+    sc_parser.add_argument("--force", action="store_true", help="Force sync even if 15 days have not elapsed")
+
+    # cloud-status
+    cs_parser = subparsers.add_parser("cloud-status", help="Check 15-day sync progress and 60-day training readiness")
+    cs_parser.add_argument("--user_id", default="local_user", help="User ID to check")
+
+    # cloud-train-prepare
+    cp_parser = subparsers.add_parser("cloud-train-prepare", help="Compile accumulated 60-day cloud data into a unified GPU training unit")
+    cp_parser.add_argument("--user_id", default="local_user", help="User ID")
+    cp_parser.add_argument("--force", action="store_true", help="Force compilation even if 60 days / 4 cycles not fully reached")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -114,6 +128,28 @@ def main():
     elif args.command == "list-models":
         res = training_service.list_colab_models()
         print(json.dumps(res, indent=2))
+
+    elif args.command == "sync-cloud":
+        res = asyncio.run(training_service.sync_cloud_delta(user_id=args.user_id, force=args.force))
+        print(json.dumps(res, indent=2))
+        if res.get("synced"):
+            print(f"\n✅ 15-day sync batch '{res.get('batch_id')}' completed successfully!")
+            print(f"📊 Chat turns synced: {res.get('stats', {}).get('chat_turns')}")
+            print(f"🎯 Readiness for 60-day training: {res.get('training_pipeline', {}).get('readiness_percentage', 0)}%")
+        else:
+            print(f"\nℹ️ {res.get('message')}")
+
+    elif args.command == "cloud-status":
+        res = training_service.get_cloud_sync_status(user_id=args.user_id)
+        print(json.dumps(res, indent=2))
+
+    elif args.command == "cloud-train-prepare":
+        res = training_service.prepare_60_day_training(user_id=args.user_id, force=args.force)
+        print(json.dumps(res, indent=2))
+        if res.get("success"):
+            print(f"\n🚀 60-day cumulative training unit created: {res.get('version_id')}")
+            print(f"📦 Colab Unit Archive: {res.get('unit_zip_path')}")
+
 
 
 if __name__ == "__main__":

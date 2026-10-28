@@ -73,5 +73,14 @@ class TrainingSanitizer:
                 sanitized = pattern.sub(replacement, sanitized)
         return sanitized
 
+    def sanitize_text(self, text: str) -> str:
+        """Redacts all credentials, secrets, API keys, tokens, and PII from text."""
+        if not text:
+            return ""
+        sanitized = text
+        for _, pattern, replacement in self._patterns:
+            sanitized = pattern.sub(replacement, sanitized)
+        return sanitized
+
 
 training_sanitizer = TrainingSanitizer()

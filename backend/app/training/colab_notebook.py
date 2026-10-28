@@ -62,6 +62,7 @@ def generate_colab_notebook_content(
             "outputs": [],
             "source": [
                 "# Step 3: Install Training Dependencies\n",
+                "!pip uninstall -y -q torchao\n",
                 "!pip install -q torch transformers datasets peft accelerate bitsandbytes\n"
             ]
         },

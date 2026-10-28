@@ -1,6 +1,7 @@
 import json
 import logging
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -59,6 +60,10 @@ class ModelDownloader:
             target_version = latest["version_id"]
         else:
             target_version = version_id
+
+        # Sanitize version string to guarantee valid Ollama model tag
+        target_version = re.sub(r"\s*\(\d+\)$", "", target_version).strip()
+        target_version = re.sub(r"[^a-zA-Z0-9_.-]", "_", target_version)
 
         # 2. Setup target local directory
         dest_dir = self.models_dir / target_version

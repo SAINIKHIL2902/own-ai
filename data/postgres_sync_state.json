@@ -1,0 +1,27 @@
+{
+  "last_synced_at": "2026-10-25T07:48:36.715908+00:00",
+  "last_training_at": null,
+  "synced_batches_count": 2,
+  "batches": [
+    {
+      "batch_id": "batch_v_20261025_072146",
+      "synced_at": "2026-10-25T07:21:46.860438+00:00",
+      "chat_turns_count": 100,
+      "memories_count": 0,
+      "interests_count": 36,
+      "uploaded_to_cloud": false,
+      "used_in_training": false,
+      "staging_path": "/Users/sainikhilreddy/Documents/my own files/own-ai/data/cloud_sync_staging/batch_v_20261025_072146.json"
+    },
+    {
+      "batch_id": "batch_v_20261025_074835",
+      "synced_at": "2026-10-25T07:48:36.715888+00:00",
+      "chat_turns_count": 0,
+      "memories_count": 0,
+      "interests_count": 36,
+      "uploaded_to_cloud": true,
+      "used_in_training": false,
+      "staging_path": "/Users/sainikhilreddy/Documents/my own files/own-ai/data/cloud_sync_staging/batch_v_20261025_074835.json"
+    }
+  ]
+}

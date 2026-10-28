@@ -115,6 +115,16 @@ CREATE TABLE IF NOT EXISTS user_behavior_stats (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_skills (
+    skill_name TEXT PRIMARY KEY,
+    level TEXT NOT NULL DEFAULT 'Intermediate',
+    category TEXT NOT NULL DEFAULT 'General',
+    years_experience REAL DEFAULT 0.0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+
 -- =============================================================================
 -- PHASE 4 MEMORY TABLES
 -- =============================================================================

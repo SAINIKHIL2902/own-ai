@@ -10,6 +10,7 @@ from app.training.downloader import ModelDownloader, model_downloader
 from app.training.gdrive_sync import GoogleDriveSyncManager, gdrive_sync
 from app.training.models import RunStatus, TrainingConfig, TrainingConsentRecord, TrainingRunRecord
 from app.training.packaging import OllamaPackager, ollama_packager
+from app.training.postgres_sync import PostgresSyncManager, postgres_sync
 from app.training.repository import TrainingRepository, training_repo
 from app.training.runner import TrainingRunner, training_runner
 from app.training.unit_builder import UnifiedTrainingUnitBuilder, unified_unit_builder
@@ -32,6 +33,7 @@ class TrainingService:
         deployment: Optional[ModelDeploymentManager] = None,
         unit_builder: Optional[UnifiedTrainingUnitBuilder] = None,
         downloader: Optional[ModelDownloader] = None,
+        pg_sync: Optional[PostgresSyncManager] = None,
     ):
         self.repo = repository or training_repo
         self.builder = builder or dataset_builder
@@ -40,6 +42,7 @@ class TrainingService:
         self.deployment = deployment or model_deployment_manager
         self.unit_builder = unit_builder or unified_unit_builder
         self.downloader = downloader or model_downloader
+        self.pg_sync = pg_sync or postgres_sync
 
     # 1. Consent
     def get_consent(self, user_id: str = "local_user") -> TrainingConsentRecord:
@@ -171,6 +174,20 @@ class TrainingService:
         """Lists all versioned models available in Google Drive and local registry."""
         return self.downloader.list_all_models()
 
+    # 6. Cloud PostgreSQL 15-Day Sync & 60-Day Training Pipeline
+    async def sync_cloud_delta(self, user_id: str = "local_user", force: bool = False) -> Dict[str, Any]:
+        """Runs the 15-day delta synchronization to online PostgreSQL."""
+        return await self.pg_sync.sync_15_day_batch(user_id=user_id, force=force)
+
+    def get_cloud_sync_status(self, user_id: str = "local_user") -> Dict[str, Any]:
+        """Checks the 15-day sync progress and 60-day training readiness."""
+        return self.pg_sync.get_status(user_id=user_id)
+
+    def prepare_60_day_training(self, user_id: str = "local_user", force: bool = False) -> Dict[str, Any]:
+        """Compiles the 60-day cumulative dataset and creates the GPU training package."""
+        return self.pg_sync.prepare_60_day_training_unit(user_id=user_id, force=force)
+
 
 training_service = TrainingService()
+
 

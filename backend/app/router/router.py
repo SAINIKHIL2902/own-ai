@@ -36,6 +36,21 @@ class RoutingDecision:
             "hard_check_passed": self.hard_check_passed,
         }
 
+    @classmethod
+    def manual(cls, provider: str, model: str, reason: str = "Manual selection") -> "RoutingDecision":
+        """Factory for direct/manual provider and model selection bypassing router scoring."""
+        return cls(
+            selected_provider=provider,
+            selected_model=model,
+            local_suitability=1.0 if provider == "local" else 0.0,
+            routing_confidence=1.0,
+            task_type="manual_override",
+            difficulty="n/a",
+            required_capabilities={},
+            reason=reason,
+            hard_check_passed=True,
+        )
+
 
 class ModelRouter:
     """

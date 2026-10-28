@@ -47,16 +47,21 @@ SPOOL_DIR = PROJECT_ROOT / "data" / "events"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle manager to initialize Kafka producer and background consumer."""
+    """Lifecycle manager to initialize Kafka producer, behavior consumer, and cloud sync scheduler."""
     logger.info("Initializing Phase 2 event infrastructure...")
     await event_producer.start()
 
     # Launch background consumer task
     consumer_task = asyncio.create_task(run_behavior_consumer())
 
+    # Launch automated 15-day sync / 60-day train scheduler
+    from app.training.scheduler import cloud_sync_scheduler
+    await cloud_sync_scheduler.start()
+
     yield
 
     logger.info("Shutting down Phase 2 event infrastructure...")
+    await cloud_sync_scheduler.stop()
     consumer_task.cancel()
     await event_producer.stop()
 
@@ -117,22 +122,34 @@ async def get_health():
     )
 
 
-@app.get("/models", response_model=ModelsResponse, summary="List Local Models")
+@app.get("/models", response_model=ModelsResponse, summary="List Local and Online Models")
 async def get_models():
+    local_models = []
     try:
-        models = await ollama_client.list_models()
-        return ModelsResponse(models=models)
-    except OllamaConnectionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        )
+        local_models = await ollama_client.list_models()
     except Exception as exc:
-        logger.error(f"Error fetching models: {exc}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve models from local Ollama daemon.",
-        )
+        logger.warning(f"Ollama list_models unavailable: {exc}")
+        local_models = [settings.OLLAMA_MODEL]
+
+    if not local_models:
+        local_models = [settings.OLLAMA_MODEL]
+
+    online_models = [
+        settings.GEMINI_MODEL,
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+    ]
+
+    all_models = list(dict.fromkeys(local_models + online_models))
+
+    return ModelsResponse(
+        models=all_models,
+        local_models=local_models,
+        online_models=online_models,
+        default_mode="auto",
+        active_local_model=settings.OLLAMA_MODEL,
+        active_online_model=settings.GEMINI_MODEL,
+    )
 
 
 @app.post("/chat", response_model=ChatResponse, summary="Send Chat Message")
@@ -208,9 +225,136 @@ async def post_feedback(request: FeedbackRequest):
 
 @app.get("/profile", summary="Get Derived User Profile")
 async def get_user_profile():
-    """Retrieve the derived user profile (interests, preferences, response_styles, contexts, and stats)."""
+    """Retrieve the derived user profile (skills, interests, preferences, response_styles, contexts, and stats)."""
     behavior_analyzer.drain_unprocessed()
     return profile_repo.get_full_profile()
+
+
+# ==============================================================================
+# USER SKILLS & EXPERTISE ENDPOINTS (Local SQLite + Cloud Sync)
+# ==============================================================================
+class SkillCreateRequest(BaseModel):
+    skill_name: str
+    level: str = "Intermediate"
+    category: str = "General"
+    years_experience: float = 0.0
+
+
+class SkillBulkUploadRequest(BaseModel):
+    skills: Optional[List[Dict[str, Any]]] = None
+    raw_text: Optional[str] = None
+    default_level: str = "Intermediate"
+    default_category: str = "General"
+
+
+async def sync_skills_to_supabase(user_id: str = "local_user") -> Tuple[bool, str]:
+    """Syncs the current list of skills directly to Supabase user_profiles table."""
+    supabase_url = getattr(settings, "SUPABASE_URL", "")
+    supabase_key = getattr(settings, "SUPABASE_KEY", "")
+    if not supabase_url or not supabase_key:
+        return False, "Supabase credentials not configured"
+
+    import httpx
+    base_url = supabase_url.rstrip("/")
+    skills = profile_repo.get_all_skills()
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+    }
+    payload = {
+        "user_id": user_id,
+        "skills": skills,
+        "last_synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(
+                f"{base_url}/rest/v1/user_profiles",
+                json=payload,
+                headers=headers,
+            )
+            if res.status_code in (200, 201, 204):
+                return True, "Synced to Supabase"
+            return False, f"Supabase status: {res.status_code}"
+    except Exception as e:
+        return False, str(e)
+
+
+@app.get("/api/skills", summary="Get User Skills")
+async def get_user_skills():
+    """Retrieve all skills from local SQLite database."""
+    skills = profile_repo.get_all_skills()
+    supabase_configured = bool(getattr(settings, "SUPABASE_URL", "") and getattr(settings, "SUPABASE_KEY", ""))
+    return {"skills": skills, "count": len(skills), "cloud_configured": supabase_configured}
+
+
+@app.post("/api/skills", summary="Add or Update Skill")
+async def add_or_update_skill(req: SkillCreateRequest):
+    """Add or update a skill in SQLite and sync to Supabase."""
+    from app.storage.models import SkillRecord
+    record = SkillRecord(
+        skill_name=req.skill_name.strip(),
+        level=req.level,
+        category=req.category,
+        years_experience=req.years_experience,
+    )
+    profile_repo.upsert_skill(record)
+    cloud_synced, cloud_msg = await sync_skills_to_supabase()
+    return {
+        "success": True,
+        "skill": profile_repo.get_skill(req.skill_name),
+        "cloud_synced": cloud_synced,
+        "cloud_message": cloud_msg,
+    }
+
+
+@app.post("/api/skills/upload", summary="Bulk Upload or Parse Skills")
+async def upload_skills_batch(req: SkillBulkUploadRequest):
+    """Bulk uploads skills from a structured list or raw text (comma/newline separated)."""
+    items_to_insert = []
+    if req.skills:
+        items_to_insert.extend(req.skills)
+    if req.raw_text:
+        tokens = [t.strip() for t in req.raw_text.replace("\n", ",").split(",") if t.strip()]
+        for t in tokens:
+            items_to_insert.append({
+                "skill_name": t,
+                "level": req.default_level,
+                "category": req.default_category,
+                "years_experience": 0.0,
+            })
+    count = profile_repo.bulk_upsert_skills(items_to_insert)
+    cloud_synced, cloud_msg = await sync_skills_to_supabase()
+    return {
+        "success": True,
+        "imported_count": count,
+        "total_skills": len(profile_repo.get_all_skills()),
+        "cloud_synced": cloud_synced,
+        "cloud_message": cloud_msg,
+    }
+
+
+@app.delete("/api/skills/{skill_name}", summary="Delete Skill")
+async def delete_user_skill(skill_name: str):
+    """Delete a skill from SQLite database and update cloud profile."""
+    deleted = profile_repo.delete_skill(skill_name)
+    cloud_synced, cloud_msg = await sync_skills_to_supabase()
+    return {
+        "success": deleted,
+        "skill_name": skill_name,
+        "cloud_synced": cloud_synced,
+        "cloud_message": cloud_msg,
+    }
+
+
+@app.post("/api/skills/sync-cloud", summary="Manual Push Skills to Cloud")
+async def trigger_skills_cloud_sync():
+    """Immediately synchronizes local SQLite skills to Supabase."""
+    cloud_synced, cloud_msg = await sync_skills_to_supabase()
+    return {"cloud_synced": cloud_synced, "message": cloud_msg, "skills_count": len(profile_repo.get_all_skills())}
+
 
 
 @app.get("/analytics/events", summary="Analytics Event Status")
@@ -580,6 +724,43 @@ async def get_colab_notebook(version_id: str):
         filename=f"colab_train_{version_id}.ipynb",
         media_type="application/x-ipynb+json",
     )
+
+
+# ------------------------------------------------------------------------------
+# Cloud PostgreSQL 15-Day Sync & 60-Day Training Pipeline Endpoints
+# ------------------------------------------------------------------------------
+class CloudSyncTriggerRequest(BaseModel):
+    user_id: str = "local_user"
+    force: bool = False
+
+
+@app.get("/api/cloud-sync/status", summary="Get 15-Day Sync & 60-Day Training Readiness Status")
+async def get_cloud_sync_status(user_id: str = "local_user"):
+    """Returns 15-day sync progress, countdown, and 60-day training readiness percentage."""
+    return training_service.get_cloud_sync_status(user_id=user_id)
+
+
+@app.post("/api/cloud-sync/trigger", summary="Trigger 15-Day Cloud Sync")
+async def trigger_cloud_sync(req: CloudSyncTriggerRequest):
+    """Executes the 15-day delta sync of sanitized profile, interests, and chat turns to PostgreSQL."""
+    try:
+        res = await training_service.sync_cloud_delta(user_id=req.user_id, force=req.force)
+        return res
+    except Exception as exc:
+        logger.error(f"Cloud sync failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/cloud-sync/prepare-train", summary="Prepare 60-Day Cumulative GPU Training Unit")
+async def prepare_cloud_training(req: CloudSyncTriggerRequest):
+    """Compiles the 60-day cumulative dataset from sync cycles into a GPU training unit."""
+    try:
+        res = training_service.prepare_60_day_training(user_id=req.user_id, force=req.force)
+        return res
+    except Exception as exc:
+        logger.error(f"Prepare 60-day training failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
 
 
 

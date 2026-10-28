@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
 import zipfile
@@ -153,6 +154,27 @@ class GoogleDriveSyncManager:
                     "metadata": {},
                 })
 
+        # Also check ~/Downloads and data/training/models for downloaded zip archives
+        extra_search_dirs = [
+            Path.home() / "Downloads",
+            PROJECT_ROOT / "data" / "training" / "models",
+        ]
+        for extra_dir in extra_search_dirs:
+            if extra_dir.exists():
+                for item in extra_dir.glob("model_*.zip"):
+                    raw_version = item.stem.replace("model_", "")
+                    version_id = re.sub(r"\s*\(\d+\)$", "", raw_version).strip()
+                    version_id = re.sub(r"[^a-zA-Z0-9_.-]", "_", version_id)
+                    if not any(m["version_id"] == version_id for m in models):
+                        models.append({
+                            "version_id": version_id,
+                            "path": str(item),
+                            "is_archive": True,
+                            "has_weights": True,
+                            "updated_at": item.stat().st_mtime,
+                            "metadata": {},
+                        })
+
         # Sort newest first
         models.sort(key=lambda x: x["updated_at"], reverse=True)
         return models
@@ -163,9 +185,10 @@ class GoogleDriveSyncManager:
 
     def retrieve_model(self, version_id: str, dest_dir: Path) -> Tuple[bool, Path, str]:
         """
-        Retrieves a trained model artifact from Google Drive and unpacks it into dest_dir.
+        Retrieves a trained model artifact from Google Drive, ~/Downloads, or data/training/models
+        and unpacks it into dest_dir.
         """
-        # 1. Search directory model
+        # 1. Search directory model in models_dir
         target_dir = self.models_dir / version_id
         if target_dir.exists() and target_dir.is_dir():
             dest_dir.mkdir(parents=True, exist_ok=True)
@@ -176,19 +199,28 @@ class GoogleDriveSyncManager:
                     shutil.copytree(file_path, dest_dir / file_path.name, dirs_exist_ok=True)
             return True, dest_dir, "Successfully imported directory from Google Drive."
 
-        # 2. Search zip archive model
-        possible_zips = [
-            self.models_dir / f"{version_id}.zip",
-            self.models_dir / f"model_{version_id}.zip",
+        # 2. Search zip archive model across models_dir, ~/Downloads, and data/training/models
+        possible_search_dirs = [
+            self.models_dir,
+            Path.home() / "Downloads",
+            PROJECT_ROOT / "data" / "training" / "models",
         ]
-        for pz in possible_zips:
-            if pz.exists() and pz.is_file():
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(pz, "r") as zf:
-                    zf.extractall(dest_dir)
-                return True, dest_dir, f"Successfully extracted archive {pz.name} from Google Drive."
+        possible_zip_names = [
+            f"{version_id}.zip",
+            f"model_{version_id}.zip",
+        ]
+        for search_dir in possible_search_dirs:
+            if not search_dir.exists():
+                continue
+            for zname in possible_zip_names:
+                pz = search_dir / zname
+                if pz.exists() and pz.is_file():
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    with zipfile.ZipFile(pz, "r") as zf:
+                        zf.extractall(dest_dir)
+                    return True, dest_dir, f"Successfully extracted archive {pz.name} from {search_dir}."
 
-        return False, dest_dir, f"Model version '{version_id}' not found in Google Drive ({self.models_dir})."
+        return False, dest_dir, f"Model version '{version_id}' not found in Google Drive ({self.models_dir}), ~/Downloads, or data/training/models."
 
 
 gdrive_sync = GoogleDriveSyncManager()

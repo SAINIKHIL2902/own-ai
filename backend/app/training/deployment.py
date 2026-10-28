@@ -43,8 +43,13 @@ class ModelDeploymentManager:
         if not run:
             return False, f"Run '{run_id}' not found.", {}
 
-        # 1. State check: must be READY_FOR_APPROVAL or EVALUATING
-        allowed_states = [RunStatus.READY_FOR_APPROVAL.value, RunStatus.PACKAGING.value, RunStatus.EVALUATING.value]
+        # 1. State check: must be READY_FOR_APPROVAL, PACKAGING, EVALUATING, or DEPLOYED
+        allowed_states = [
+            RunStatus.READY_FOR_APPROVAL.value,
+            RunStatus.PACKAGING.value,
+            RunStatus.EVALUATING.value,
+            RunStatus.DEPLOYED.value,
+        ]
         if run.status not in allowed_states:
             return (
                 False,

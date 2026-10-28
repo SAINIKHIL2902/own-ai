@@ -40,6 +40,7 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Target Compute Device: {device}")
+    os.makedirs(args.output_dir, exist_ok=True)
 
     # Load dataset
     train_path = os.path.join(args.data_dir, "train.jsonl")
@@ -54,7 +55,9 @@ def main():
 
     def format_chat(example):
         text = tokenizer.apply_chat_template(example["messages"], tokenize=False)
-        return tokenizer(text, truncation=True, max_length=1024)
+        tokens = tokenizer(text, truncation=True, max_length=1024)
+        tokens["labels"] = tokens["input_ids"].copy()
+        return tokens
 
     tokenized_datasets = raw_datasets.map(format_chat, remove_columns=raw_datasets["train"].column_names)
 
