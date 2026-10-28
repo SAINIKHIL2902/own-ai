@@ -64,6 +64,7 @@ echo "🔨 Building & Pushing multi-arch image (${PLATFORMS}) to Docker Hub..."
 docker buildx build \
   --platform "${PLATFORMS}" \
   -t "${IMAGE_NAME}" \
+  -t "${USERNAME}/own-ai:latest" \
   -f Dockerfile \
   --push .
 
