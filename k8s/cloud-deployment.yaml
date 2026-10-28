@@ -1,0 +1,193 @@
+# ==============================================================================
+# own-ai: Production Cloud Provider Kubernetes Deployment
+# Compatible with AWS EKS, Google Cloud GKE, Azure AKS, DigitalOcean, Linode
+# ==============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: own-ai
+---
+# 1. Cloud ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: own-ai-config
+  namespace: own-ai
+data:
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+  OLLAMA_MODEL: "llama3.2:1b"
+  OLLAMA_TIMEOUT: "120"
+  SQLITE_DB_PATH: "data/user.db"
+  KAFKA_ENABLED: "false"
+  GEMINI_MODEL: "gemini-3.5-flash-lite"
+  LOCAL_MIN_SUITABILITY: "0.70"
+  LOCAL_MIN_CONFIDENCE: "0.65"
+  LOCAL_MAX_CONTEXT_CHARS: "6000"
+---
+# 2. Cloud Secrets (Fill in your cloud API keys)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: own-ai-secrets
+  namespace: own-ai
+type: Opaque
+stringData:
+  GEMINI_API_KEY: ""
+  SUPABASE_DB_URL: ""
+---
+# 3. Persistent Storage for SQLite & Skills (Uses Cloud Dynamic StorageClass)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: own-ai-data-pvc
+  namespace: own-ai
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# 4. Persistent Storage for Ollama GGUF Models (Downloaded once in cloud)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: own-ai
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 15Gi
+---
+# 5. Ollama LLM Engine Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: own-ai
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "3000m"
+          volumeMounts:
+            - name: ollama-storage
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+---
+# 6. Internal Service for Ollama
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: own-ai
+spec:
+  selector:
+    app: ollama
+  ports:
+    - protocol: TCP
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+---
+# 7. own-ai Application Deployment (FastAPI + Chatbot UI)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: own-ai-app
+  namespace: own-ai
+  labels:
+    app: own-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: own-ai
+  template:
+    metadata:
+      labels:
+        app: own-ai
+    spec:
+      containers:
+        - name: own-ai-app
+          image: dockerhub8790974548/own-ai:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: own-ai-config
+            - secretRef:
+                name: own-ai-secrets
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1.5Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: app-storage
+              mountPath: /app/data
+      volumes:
+        - name: app-storage
+          persistentVolumeClaim:
+            claimName: own-ai-data-pvc
+---
+# 8. External Cloud LoadBalancer (Provides a Public IP or DNS in AWS / GCP / Azure)
+apiVersion: v1
+kind: Service
+metadata:
+  name: own-ai-service
+  namespace: own-ai
+  labels:
+    app: own-ai
+spec:
+  type: LoadBalancer
+  selector:
+    app: own-ai
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
