@@ -24,18 +24,7 @@ data:
   LOCAL_MIN_CONFIDENCE: "0.65"
   LOCAL_MAX_CONTEXT_CHARS: "6000"
 ---
-# 2. Cloud Secrets (Fill in your cloud API keys)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: own-ai-secrets
-  namespace: own-ai
-type: Opaque
-stringData:
-  GEMINI_API_KEY: ""
-  SUPABASE_DB_URL: ""
----
-# 3. Persistent Storage for SQLite & Skills (Uses Cloud Dynamic StorageClass)
+# 2. Persistent Storage for SQLite & Skills (Uses Cloud Dynamic StorageClass)
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -73,6 +62,8 @@ metadata:
     app: ollama
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: ollama
@@ -130,6 +121,8 @@ metadata:
     app: own-ai
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: own-ai
@@ -194,6 +187,11 @@ spec:
   selector:
     app: own-ai
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 80
+      targetPort: 8000
+    - name: app
+      protocol: TCP
+      port: 8000
       targetPort: 8000

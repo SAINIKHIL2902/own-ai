@@ -84,6 +84,8 @@ metadata:
     app: own-ai
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: own-ai
@@ -102,9 +104,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: own-ai-config
-          env:
-            - name: GEMINI_API_KEY
-              value: ""
+            - secretRef:
+                name: own-ai-secrets
           resources:
             requests:
               memory: "128Mi"
