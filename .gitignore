@@ -38,12 +38,18 @@ data/training/**
 !data/training/
 !data/training/.gitkeep
 
-# Google Drive sync staging
+# Google Drive & Cloud sync staging
 data/google_drive_sync/**
 !data/google_drive_sync/
 !data/google_drive_sync/.gitkeep
+data/cloud_sync_staging/**
+!data/cloud_sync_staging/
+!data/cloud_sync_staging/.gitkeep
+data/postgres_sync_state.json
+data/*.json
 
 # Evaluation reports
+
 evaluation/reports/*
 !evaluation/reports/.gitkeep
 

@@ -1,0 +1,138 @@
+# ==============================================================================
+# own-ai: Complete & Simplified Kubernetes Deployment
+# ==============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: own-ai
+---
+# 1. Configuration (Environment variables for own-ai backend)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: own-ai-config
+  namespace: own-ai
+data:
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+  OLLAMA_MODEL: "llama3.2:1b"
+  OLLAMA_TIMEOUT: "120"
+  SQLITE_DB_PATH: "data/user.db"
+  KAFKA_ENABLED: "false"
+  GEMINI_MODEL: "gemini-3.5-flash-lite"
+---
+# 2. Ollama Local LLM Engine Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: own-ai
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-data
+          emptyDir: {}
+---
+# 3. Ollama Internal Service (Allows own-ai-app to reach Ollama)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: own-ai
+spec:
+  selector:
+    app: ollama
+  ports:
+    - protocol: TCP
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+---
+# 4. own-ai Application Deployment (FastAPI + Chat UI)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: own-ai-app
+  namespace: own-ai
+  labels:
+    app: own-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: own-ai
+  template:
+    metadata:
+      labels:
+        app: own-ai
+    spec:
+      containers:
+        - name: own-ai-app
+          image: dockerhub8790974548/own-ai:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: own-ai-config
+          env:
+            - name: GEMINI_API_KEY
+              value: ""
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          volumeMounts:
+            - name: app-storage
+              mountPath: /app/data
+      volumes:
+        - name: app-storage
+          emptyDir: {}
+---
+# 5. External Access Service (Exposes Port 8000 to your Browser)
+apiVersion: v1
+kind: Service
+metadata:
+  name: own-ai-service
+  namespace: own-ai
+  labels:
+    app: own-ai
+spec:
+  type: NodePort
+  selector:
+    app: own-ai
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+      nodePort: 30080
