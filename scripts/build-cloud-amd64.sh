@@ -8,7 +8,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
 USERNAME="${1:-dockerhub8790974548}"
-TAG="${2:-v1.0.1}"
+TAG="${2:-v1.0.2}"
 PASSWORD="${3:-$DOCKERHUB_PASSWORD}"
 
 echo "=========================================================="
