@@ -111,10 +111,64 @@ class ChatService:
             memories=relevant_memories,
         )
 
-        # 3. Route request: determine whether Local is sufficiently capable or if Gemini is required (Phase 3)
-        decision: RoutingDecision = self.router.route(latest_prompt, history)
-        selected_provider = decision.selected_provider
-        target_model = decision.selected_model
+        # 3. Route request: support offline, online, and auto modes
+        mode = (getattr(request, "mode", None) or "auto").lower().strip()
+        requested_model = getattr(request, "model", None)
+        if requested_model and requested_model.strip():
+            requested_model = requested_model.strip()
+        else:
+            requested_model = None
+
+        if mode in ("offline", "local"):
+            selected_provider = "local"
+            if requested_model and requested_model.lower() not in ("auto", "offline", "local", "default"):
+                target_model = requested_model
+            else:
+                try:
+                    from app.training.deployment import model_deployment_manager
+                    target_model = model_deployment_manager.get_current_model() or settings.OLLAMA_MODEL
+                except Exception:
+                    target_model = settings.OLLAMA_MODEL
+            decision = RoutingDecision.manual(
+                provider="local",
+                model=target_model,
+                reason="User manually selected Offline (Local) mode",
+            )
+        elif mode in ("online", "cloud", "gemini"):
+            selected_provider = "gemini"
+            if requested_model and requested_model.lower() not in ("auto", "online", "cloud", "gemini", "default"):
+                target_model = requested_model
+            else:
+                target_model = settings.GEMINI_MODEL
+            decision = RoutingDecision.manual(
+                provider="gemini",
+                model=target_model,
+                reason="User manually selected Online (Cloud) mode",
+            )
+        else:
+            # Mode is "auto" (or not specified):
+            if requested_model and requested_model.lower() not in ("auto", "default", "none"):
+                if "gemini" in requested_model.lower():
+                    selected_provider = "gemini"
+                    target_model = requested_model
+                    decision = RoutingDecision.manual(
+                        provider="gemini",
+                        model=target_model,
+                        reason=f"Direct model override: {requested_model}",
+                    )
+                else:
+                    selected_provider = "local"
+                    target_model = requested_model
+                    decision = RoutingDecision.manual(
+                        provider="local",
+                        model=target_model,
+                        reason=f"Direct model override: {requested_model}",
+                    )
+            else:
+                # Present codebase router logic
+                decision = self.router.route(latest_prompt, history)
+                selected_provider = decision.selected_provider
+                target_model = decision.selected_model
 
         actual_provider = selected_provider
         actual_model = target_model
@@ -133,10 +187,27 @@ class ChatService:
             else:
                 local_payload = personalized_messages
 
-            result = await self.ollama.generate(messages=local_payload, model=target_model)
-            response_text = result.get("response", "")
-            actual_model = result.get("model", target_model)
-            actual_provider = "local"
+            try:
+                result = await self.ollama.generate(messages=local_payload, model=target_model)
+                response_text = result.get("response", "")
+                actual_model = result.get("model", target_model)
+                actual_provider = "local"
+            except Exception as local_err:
+                # If mode is auto, gracefully failover to Gemini cloud instead of crashing!
+                if mode == "auto" and hasattr(self, "gemini"):
+                    logger.warning(
+                        f"Local Ollama is not running ({local_err}). Auto mode gracefully failing over to Gemini cloud..."
+                    )
+                    sanitized_messages, scan_result = self.privacy.sanitize_messages(personalized_messages)
+                    result = await self.gemini.generate(messages=sanitized_messages, model=settings.GEMINI_MODEL)
+                    response_text = result.get("response", "")
+                    actual_model = result.get("model", settings.GEMINI_MODEL)
+                    actual_provider = "gemini"
+                    decision.selected_provider = "gemini"
+                    decision.selected_model = settings.GEMINI_MODEL
+                    decision.reason += " [Local Ollama was not running; auto failed over to Gemini cloud]"
+                else:
+                    raise
         else:
             # Selected provider is GEMINI
             # Step 4a: Enforce Privacy Boundary -> Sanitize personalized messages before transmitting externally

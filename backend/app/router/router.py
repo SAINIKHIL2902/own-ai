@@ -36,6 +36,21 @@ class RoutingDecision:
             "hard_check_passed": self.hard_check_passed,
         }
 
+    @classmethod
+    def manual(cls, provider: str, model: str, reason: str = "Manual selection") -> "RoutingDecision":
+        """Factory for direct/manual provider and model selection bypassing router scoring."""
+        return cls(
+            selected_provider=provider,
+            selected_model=model,
+            local_suitability=1.0 if provider == "local" else 0.0,
+            routing_confidence=1.0,
+            task_type="manual_override",
+            difficulty="n/a",
+            required_capabilities={},
+            reason=reason,
+            hard_check_passed=True,
+        )
+
 
 class ModelRouter:
     """
@@ -93,7 +108,12 @@ class ModelRouter:
 
         if is_suitable and is_confident:
             selected_provider = "local"
-            selected_model = settings.OLLAMA_MODEL
+            try:
+                from app.training.deployment import model_deployment_manager
+                active_local = model_deployment_manager.get_current_model()
+            except Exception:
+                active_local = settings.OLLAMA_MODEL
+            selected_model = active_local or settings.OLLAMA_MODEL
             reason = (
                 f"Local model is sufficiently capable (suitability {suitability} >= {min_suitability}) "
                 f"and routing confidence is high ({confidence} >= {min_confidence})."

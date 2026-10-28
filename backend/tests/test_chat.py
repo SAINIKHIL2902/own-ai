@@ -101,7 +101,7 @@ async def test_chat_service_propagates_connection_error():
     service = ChatService(ollama_client=client)
 
     with pytest.raises(OllamaConnectionError):
-        await service.chat(ChatRequest(message="test"))
+        await service.chat(ChatRequest(message="test", mode="offline"))
 
 
 @pytest.mark.asyncio
@@ -110,4 +110,6 @@ async def test_chat_service_propagates_model_not_found_error():
     service = ChatService(ollama_client=client)
 
     with pytest.raises(OllamaModelNotFoundError):
-        await service.chat(ChatRequest(message="test"))
+        await service.chat(ChatRequest(message="test", mode="offline"))
+
+

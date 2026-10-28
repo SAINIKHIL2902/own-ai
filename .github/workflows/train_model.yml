@@ -1,0 +1,113 @@
+name: Train & Package Personal AI Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_type:
+        description: "Execution Runner"
+        required: true
+        default: "ubuntu-latest"
+        type: choice
+        options:
+          - "ubuntu-latest"
+          - "self-hosted"
+      epochs:
+        description: "Number of training epochs"
+        required: false
+        default: "2"
+        type: string
+      lora_rank:
+        description: "LoRA Rank (r)"
+        required: false
+        default: "8"
+        type: string
+      base_model:
+        description: "HuggingFace base model identifier"
+        required: false
+        default: "unsloth/Llama-3.2-1B-Instruct"
+        type: string
+  schedule:
+    # Run bi-weekly (1st and 15th of every month at midnight UTC)
+    - cron: '0 0 1,15 * *'
+
+jobs:
+  validate-and-train:
+    name: Train LoRA Candidate Model
+    runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+        if: ${{ github.event.inputs.runner_type != 'self-hosted' }}
+
+      - name: Install Training Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -q transformers datasets peft accelerate bitsandbytes torch
+
+      - name: Verify Hardware & Acceleration
+        run: |
+          python -c "
+          import torch
+          print('PyTorch Version:', torch.__version__)
+          print('CUDA Available:', torch.cuda.is_available())
+          print('MPS (Apple Silicon) Available:', torch.backends.mps.is_available())
+          "
+
+      - name: Prepare & Validate Training Dataset
+        run: |
+          python -c "
+          import os, json
+          os.makedirs('data/training/active', exist_ok=True)
+          train_p = 'data/training/active/train.jsonl'
+          val_p = 'data/training/active/val.jsonl'
+
+          # Fallback sample dataset if local database sync has not populated active data yet
+          sample_data = [
+              {'messages': [{'role': 'user', 'content': 'Hello, who are you?'}, {'role': 'assistant', 'content': 'I am your personal AI assistant running locally and fine-tuned on your preferences.'}]},
+              {'messages': [{'role': 'user', 'content': 'What is your primary goal?'}, {'role': 'assistant', 'content': 'My primary goal is to help you learn, code, and automate your workflows while preserving 100% data privacy.'}]}
+          ]
+          if not os.path.exists(train_p) or os.path.getsize(train_p) == 0:
+              with open(train_p, 'w') as f:
+                  for item in sample_data:
+                      f.write(json.dumps(item) + '\n')
+          if not os.path.exists(val_p) or os.path.getsize(val_p) == 0:
+              with open(val_p, 'w') as f:
+                  f.write(json.dumps(sample_data[0]) + '\n')
+          print('Training data ready.')
+          "
+
+      - name: Run LoRA Fine-Tuning
+        run: |
+          python scripts/train_gpu.py \
+            --base_model "${{ github.event.inputs.base_model || 'unsloth/Llama-3.2-1B-Instruct' }}" \
+            --data_dir "data/training/active" \
+            --output_dir "data/training/artifacts/candidate_adapter" \
+            --epochs ${{ github.event.inputs.epochs || '2' }} \
+            --batch_size 1 \
+            --lora_rank ${{ github.event.inputs.lora_rank || '8' }}
+
+      - name: Generate Ollama Modelfile
+        run: |
+          cat << 'EOF' > data/training/artifacts/candidate_adapter/Modelfile
+          FROM llama3.2:1b
+          ADAPTER ./adapter_model.bin
+          PARAMETER temperature 0.7
+          PARAMETER top_p 0.9
+          SYSTEM """You are own-ai, a personalized AI assistant fine-tuned on the user's conversational style and skills."""
+          EOF
+          echo "Generated Ollama Modelfile."
+
+      - name: Upload Trained Adapter Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: own-ai-candidate-adapter
+          path: data/training/artifacts/candidate_adapter/
+          retention-days: 14

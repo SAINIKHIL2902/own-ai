@@ -12,6 +12,8 @@ class ChatRequest(BaseModel):
     messages: Optional[List[ChatMessage]] = Field(default=None, description="Optional conversation history")
     conversation_id: Optional[str] = Field(default=None, description="Optional conversation ID")
     user_id: Optional[str] = Field(default="local_user", description="User identifier for personalized memory")
+    mode: Optional[str] = Field(default="auto", description="Routing mode: 'auto', 'offline', 'online'")
+    model: Optional[str] = Field(default=None, description="Specific model override if selected")
 
     @model_validator(mode="after")
     def validate_input(self) -> "ChatRequest":
@@ -49,3 +51,9 @@ class HealthResponse(BaseModel):
 
 class ModelsResponse(BaseModel):
     models: List[str]
+    local_models: Optional[List[str]] = None
+    online_models: Optional[List[str]] = None
+    default_mode: str = "auto"
+    active_local_model: Optional[str] = None
+    active_online_model: Optional[str] = None
+

@@ -117,3 +117,14 @@ class BehaviorStatRecord:
     stat_key: str
     stat_value: str
     updated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class SkillRecord:
+    skill_name: str
+    level: str = "Intermediate"  # Beginner, Intermediate, Advanced, Expert
+    category: str = "General"    # Programming, AI/ML, DevOps, Database, Framework, Tool
+    years_experience: float = 0.0
+    created_at: str = field(default_factory=utc_now)
+    updated_at: str = field(default_factory=utc_now)
+

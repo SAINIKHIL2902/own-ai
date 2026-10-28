@@ -1,0 +1,29 @@
+# Python & Virtualenv
+backend/venv/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Git & Antigravity
+.git/
+.gitignore
+.gemini/
+*.zip
+
+# Local Data & SQLite runtime (mounted as volume instead)
+data/user.db*
+data/events/*.json
+data/exports/*.jsonl
+data/cloud_sync_staging/*.json
+data/postgres_sync_state.json
+
+# IDE & OS
+.DS_Store
+.idea/
+.vscode/

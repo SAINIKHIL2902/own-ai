@@ -1,0 +1,253 @@
+{
+  "user_id": "local_user",
+  "gathered_at": "2026-10-25T07:48:35.673608+00:00",
+  "profile": {
+    "skills": {
+      "total_interactions": "195",
+      "total_prompt_length": "11045",
+      "avg_prompt_length": "56.6",
+      "last_active_utc_hour": "13",
+      "last_model_used": "llama3.2:1b-behavior-v1",
+      "feedback_positive_count": "41",
+      "total_latency_ms": "439724.67",
+      "avg_latency_ms": "2255.0",
+      "feedback_negative_count": "2",
+      "top_liked_style": "Structured Overview"
+    },
+    "interests": [
+      {
+        "topic": "Python",
+        "score": 0.9895
+      },
+      {
+        "topic": "Kafka",
+        "score": 0.9204
+      },
+      {
+        "topic": "General Q&A",
+        "score": 0.8073
+      },
+      {
+        "topic": "Kubernetes",
+        "score": 0.792
+      },
+      {
+        "topic": "API Design",
+        "score": 0.7241
+      },
+      {
+        "topic": "Machine Learning",
+        "score": 0.7201
+      },
+      {
+        "topic": "Databases",
+        "score": 0.6683
+      },
+      {
+        "topic": "Bash",
+        "score": 0.6368
+      },
+      {
+        "topic": "Performance Optimization",
+        "score": 0.574
+      },
+      {
+        "topic": "General Assistant",
+        "score": 0.5641
+      },
+      {
+        "topic": "MLOps",
+        "score": 0.5586
+      },
+      {
+        "topic": "System Architecture",
+        "score": 0.5323
+      },
+      {
+        "topic": "Cloud Computing",
+        "score": 0.5281
+      },
+      {
+        "topic": "Cybersecurity",
+        "score": 0.5131
+      },
+      {
+        "topic": "FastAPI",
+        "score": 0.4666
+      },
+      {
+        "topic": "Algorithms",
+        "score": 0.4372
+      },
+      {
+        "topic": "SQL",
+        "score": 0.41
+      },
+      {
+        "topic": "Artificial Intelligence",
+        "score": 0.3978
+      },
+      {
+        "topic": "Java",
+        "score": 0.35
+      },
+      {
+        "topic": "CI/CD",
+        "score": 0.35
+      },
+      {
+        "topic": "Concurrency",
+        "score": 0.35
+      },
+      {
+        "topic": "Data Engineering",
+        "score": 0.35
+      },
+      {
+        "topic": "DevOps",
+        "score": 0.35
+      },
+      {
+        "topic": "NLP",
+        "score": 0.35
+      },
+      {
+        "topic": "Git",
+        "score": 0.3313
+      },
+      {
+        "topic": "Testing",
+        "score": 0.3272
+      },
+      {
+        "topic": "Microservices",
+        "score": 0.3201
+      },
+      {
+        "topic": "Backend Development",
+        "score": 0.314
+      },
+      {
+        "topic": "Django",
+        "score": 0.314
+      },
+      {
+        "topic": "GitHub",
+        "score": 0.314
+      },
+      {
+        "topic": "Linux",
+        "score": 0.3084
+      },
+      {
+        "topic": "HTML/CSS",
+        "score": 0.3068
+      },
+      {
+        "topic": "Flask",
+        "score": 0.2773
+      },
+      {
+        "topic": "PyTorch",
+        "score": 0.2707
+      },
+      {
+        "topic": "Deep Learning",
+        "score": 0.2641
+      },
+      {
+        "topic": "Docker",
+        "score": 0.2637
+      }
+    ],
+    "preferences": [
+      {
+        "key": "prefers_code",
+        "value": "true",
+        "confidence": 1.0
+      },
+      {
+        "key": "prefers_step_by_step",
+        "value": "true",
+        "confidence": 1.0
+      },
+      {
+        "key": "prefers_real_world_examples",
+        "value": "true",
+        "confidence": 1.0
+      },
+      {
+        "key": "prefers_examples",
+        "value": "true",
+        "confidence": 0.8
+      },
+      {
+        "key": "prefers_bullet_points",
+        "value": "true",
+        "confidence": 0.6
+      },
+      {
+        "key": "prefers_detailed_answers",
+        "value": "true",
+        "confidence": 0.4
+      },
+      {
+        "key": "prefers_simple_explanations",
+        "value": "true",
+        "confidence": 0.4
+      },
+      {
+        "key": "prefers_concise_answers",
+        "value": "true",
+        "confidence": 0.2
+      },
+      {
+        "key": "prefers_troubleshooting",
+        "value": "true",
+        "confidence": 0.2
+      }
+    ],
+    "styles": [
+      {
+        "style_key": "deep_dive_conceptual",
+        "style_name": "Deep Dive Explanation",
+        "description": "Comprehensive explanatory prose and conceptual deep-dive",
+        "liked_count": 2,
+        "disliked_count": 0,
+        "affinity_score": 1.0,
+        "updated_at": "2026-09-20T07:21:18.421218+00:00"
+      },
+      {
+        "style_key": "code_centric",
+        "style_name": "Direct Code Implementation",
+        "description": "Clean, actionable code snippets with minimal commentary",
+        "liked_count": 1,
+        "disliked_count": 0,
+        "affinity_score": 1.0,
+        "updated_at": "2026-09-20T08:41:23.618081+00:00"
+      },
+      {
+        "style_key": "structured_overview",
+        "style_name": "Structured Overview",
+        "description": "Well-organized reference with headings and structured sections",
+        "liked_count": 1,
+        "disliked_count": 0,
+        "affinity_score": 1.0,
+        "updated_at": "2026-09-21T13:10:16.264545+00:00"
+      },
+      {
+        "style_key": "step_by_step_guide",
+        "style_name": "Step-by-Step Conceptual Guide",
+        "description": "Clear sequential breakdown of a process or concept",
+        "liked_count": 0,
+        "disliked_count": 1,
+        "affinity_score": 0.0,
+        "updated_at": "2026-09-20T07:21:46.085514+00:00"
+      }
+    ]
+  },
+  "memories": [],
+  "chat_turns_count": 0,
+  "chat_turns": [],
+  "batch_id": "batch_v_20261025_074835"
+}

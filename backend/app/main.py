@@ -47,16 +47,21 @@ SPOOL_DIR = PROJECT_ROOT / "data" / "events"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle manager to initialize Kafka producer and background consumer."""
+    """Lifecycle manager to initialize Kafka producer, behavior consumer, and cloud sync scheduler."""
     logger.info("Initializing Phase 2 event infrastructure...")
     await event_producer.start()
 
     # Launch background consumer task
     consumer_task = asyncio.create_task(run_behavior_consumer())
 
+    # Launch automated 15-day sync / 60-day train scheduler
+    from app.training.scheduler import cloud_sync_scheduler
+    await cloud_sync_scheduler.start()
+
     yield
 
     logger.info("Shutting down Phase 2 event infrastructure...")
+    await cloud_sync_scheduler.stop()
     consumer_task.cancel()
     await event_producer.stop()
 
@@ -76,6 +81,12 @@ ollama_client = OllamaClient()
 
 class MainOllamaAdapter:
     async def generate(self, messages, model=None):
+        if not model:
+            try:
+                from app.training.deployment import model_deployment_manager
+                model = model_deployment_manager.get_current_model()
+            except Exception:
+                model = settings.OLLAMA_MODEL
         target_model = model or settings.OLLAMA_MODEL
         res = await ollama_client.generate_chat(messages=messages, model=target_model)
         return {
@@ -111,22 +122,34 @@ async def get_health():
     )
 
 
-@app.get("/models", response_model=ModelsResponse, summary="List Local Models")
+@app.get("/models", response_model=ModelsResponse, summary="List Local and Online Models")
 async def get_models():
+    local_models = []
     try:
-        models = await ollama_client.list_models()
-        return ModelsResponse(models=models)
-    except OllamaConnectionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        )
+        local_models = await ollama_client.list_models()
     except Exception as exc:
-        logger.error(f"Error fetching models: {exc}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve models from local Ollama daemon.",
-        )
+        logger.warning(f"Ollama list_models unavailable: {exc}")
+        local_models = [settings.OLLAMA_MODEL]
+
+    if not local_models:
+        local_models = [settings.OLLAMA_MODEL]
+
+    online_models = [
+        settings.GEMINI_MODEL,
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+    ]
+
+    all_models = list(dict.fromkeys(local_models + online_models))
+
+    return ModelsResponse(
+        models=all_models,
+        local_models=local_models,
+        online_models=online_models,
+        default_mode="auto",
+        active_local_model=settings.OLLAMA_MODEL,
+        active_online_model=settings.GEMINI_MODEL,
+    )
 
 
 @app.post("/chat", response_model=ChatResponse, summary="Send Chat Message")
@@ -202,9 +225,136 @@ async def post_feedback(request: FeedbackRequest):
 
 @app.get("/profile", summary="Get Derived User Profile")
 async def get_user_profile():
-    """Retrieve the derived user profile (interests, preferences, response_styles, contexts, and stats)."""
+    """Retrieve the derived user profile (skills, interests, preferences, response_styles, contexts, and stats)."""
     behavior_analyzer.drain_unprocessed()
     return profile_repo.get_full_profile()
+
+
+# ==============================================================================
+# USER SKILLS & EXPERTISE ENDPOINTS (Local SQLite + Cloud Sync)
+# ==============================================================================
+class SkillCreateRequest(BaseModel):
+    skill_name: str
+    level: str = "Intermediate"
+    category: str = "General"
+    years_experience: float = 0.0
+
+
+class SkillBulkUploadRequest(BaseModel):
+    skills: Optional[List[Dict[str, Any]]] = None
+    raw_text: Optional[str] = None
+    default_level: str = "Intermediate"
+    default_category: str = "General"
+
+
+async def sync_skills_to_supabase(user_id: str = "local_user") -> Tuple[bool, str]:
+    """Syncs the current list of skills directly to Supabase user_profiles table."""
+    supabase_url = getattr(settings, "SUPABASE_URL", "")
+    supabase_key = getattr(settings, "SUPABASE_KEY", "")
+    if not supabase_url or not supabase_key:
+        return False, "Supabase credentials not configured"
+
+    import httpx
+    base_url = supabase_url.rstrip("/")
+    skills = profile_repo.get_all_skills()
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+    }
+    payload = {
+        "user_id": user_id,
+        "skills": skills,
+        "last_synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(
+                f"{base_url}/rest/v1/user_profiles",
+                json=payload,
+                headers=headers,
+            )
+            if res.status_code in (200, 201, 204):
+                return True, "Synced to Supabase"
+            return False, f"Supabase status: {res.status_code}"
+    except Exception as e:
+        return False, str(e)
+
+
+@app.get("/api/skills", summary="Get User Skills")
+async def get_user_skills():
+    """Retrieve all skills from local SQLite database."""
+    skills = profile_repo.get_all_skills()
+    supabase_configured = bool(getattr(settings, "SUPABASE_URL", "") and getattr(settings, "SUPABASE_KEY", ""))
+    return {"skills": skills, "count": len(skills), "cloud_configured": supabase_configured}
+
+
+@app.post("/api/skills", summary="Add or Update Skill")
+async def add_or_update_skill(req: SkillCreateRequest):
+    """Add or update a skill in SQLite and sync to Supabase."""
+    from app.storage.models import SkillRecord
+    record = SkillRecord(
+        skill_name=req.skill_name.strip(),
+        level=req.level,
+        category=req.category,
+        years_experience=req.years_experience,
+    )
+    profile_repo.upsert_skill(record)
+    cloud_synced, cloud_msg = await sync_skills_to_supabase()
+    return {
+        "success": True,
+        "skill": profile_repo.get_skill(req.skill_name),
+        "cloud_synced": cloud_synced,
+        "cloud_message": cloud_msg,
+    }
+
+
+@app.post("/api/skills/upload", summary="Bulk Upload or Parse Skills")
+async def upload_skills_batch(req: SkillBulkUploadRequest):
+    """Bulk uploads skills from a structured list or raw text (comma/newline separated)."""
+    items_to_insert = []
+    if req.skills:
+        items_to_insert.extend(req.skills)
+    if req.raw_text:
+        tokens = [t.strip() for t in req.raw_text.replace("\n", ",").split(",") if t.strip()]
+        for t in tokens:
+            items_to_insert.append({
+                "skill_name": t,
+                "level": req.default_level,
+                "category": req.default_category,
+                "years_experience": 0.0,
+            })
+    count = profile_repo.bulk_upsert_skills(items_to_insert)
+    cloud_synced, cloud_msg = await sync_skills_to_supabase()
+    return {
+        "success": True,
+        "imported_count": count,
+        "total_skills": len(profile_repo.get_all_skills()),
+        "cloud_synced": cloud_synced,
+        "cloud_message": cloud_msg,
+    }
+
+
+@app.delete("/api/skills/{skill_name}", summary="Delete Skill")
+async def delete_user_skill(skill_name: str):
+    """Delete a skill from SQLite database and update cloud profile."""
+    deleted = profile_repo.delete_skill(skill_name)
+    cloud_synced, cloud_msg = await sync_skills_to_supabase()
+    return {
+        "success": deleted,
+        "skill_name": skill_name,
+        "cloud_synced": cloud_synced,
+        "cloud_message": cloud_msg,
+    }
+
+
+@app.post("/api/skills/sync-cloud", summary="Manual Push Skills to Cloud")
+async def trigger_skills_cloud_sync():
+    """Immediately synchronizes local SQLite skills to Supabase."""
+    cloud_synced, cloud_msg = await sync_skills_to_supabase()
+    return {"cloud_synced": cloud_synced, "message": cloud_msg, "skills_count": len(profile_repo.get_all_skills())}
+
 
 
 @app.get("/analytics/events", summary="Analytics Event Status")
@@ -350,4 +500,267 @@ async def delete_memory(memory_id: str, soft: bool = True):
             detail=f"Memory '{memory_id}' not found.",
         )
     return {"status": "ok", "deleted": True, "memory_id": memory_id, "soft": soft}
+
+
+# ==============================================================================
+# PHASE 5 ENDPOINTS: BEHAVIOR-BASED LOCAL MODEL TRAINING & DEPLOYMENT
+# ==============================================================================
+from app.training.models import (
+    ActivateRunRequest,
+    ColabExportRequest,
+    ColabImportRequest,
+    ConsentRequest,
+    DatasetBuildRequest,
+    EvaluateRunRequest,
+    PackageRunRequest,
+    RollbackRunRequest,
+    TrainingConfig,
+    TrainingRunCreateRequest,
+)
+from app.training.service import training_service
+
+
+@app.get("/api/training/status", summary="Get Model Training Pipeline Status")
+async def get_training_status():
+    """Returns overview of active model, consent status, and recent training runs."""
+    return training_service.get_status()
+
+
+@app.get("/api/training/consent", summary="Get User Training Consent")
+async def get_training_consent(user_id: str = "local_user"):
+    """Check whether the user has opted in to behavior-based model training."""
+    consent = training_service.get_consent(user_id=user_id)
+    return consent.to_dict()
+
+
+@app.post("/api/training/consent", summary="Update User Training Consent")
+async def set_training_consent(req: ConsentRequest):
+    """Opt-in or opt-out of training data extraction and model fine-tuning."""
+    consent = training_service.set_consent(user_id=req.user_id, opted_in=req.opted_in)
+    return consent.to_dict()
+
+
+@app.post("/api/training/dataset", summary="Build Curated Training Dataset")
+async def build_training_dataset(req: DatasetBuildRequest):
+    """
+    Extract sanitized, consent-aware user interactions and build a reproducible
+    JSONL train/val dataset.
+    """
+    cfg = TrainingConfig()
+    if req.base_model:
+        cfg.base_model = req.base_model
+    if req.train_val_split is not None:
+        cfg.train_val_split = req.train_val_split
+
+    try:
+        manifest = training_service.prepare_dataset(config=cfg, user_id=req.user_id)
+        return manifest
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Dataset build failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/training/runs", summary="Create Training Run & Cloud Bundle")
+async def create_training_run(req: TrainingRunCreateRequest):
+    """
+    Register a training run and generate a self-contained Cloud GPU bundle (.zip)
+    ready for execution on Google Colab (Free T4 GPU) or Kaggle.
+    """
+    cfg = TrainingConfig()
+    if req.base_model:
+        cfg.base_model = req.base_model
+    if req.num_epochs is not None:
+        cfg.num_epochs = req.num_epochs
+    if req.batch_size is not None:
+        cfg.batch_size = req.batch_size
+    if req.learning_rate is not None:
+        cfg.learning_rate = req.learning_rate
+    if req.candidate_tag:
+        cfg.candidate_tag = req.candidate_tag
+
+    result = training_service.initiate_training_run(
+        dataset_version=req.dataset_version,
+        config=cfg,
+        user_id=req.user_id,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error"))
+    return result
+
+
+@app.get("/api/training/runs", summary="List All Training Runs")
+async def list_training_runs(limit: int = 20):
+    """List recent training runs and their current statuses."""
+    runs = training_service.repo.list_runs(limit=limit)
+    return [r.to_dict() for r in runs]
+
+
+@app.get("/api/training/runs/{run_id}", summary="Get Training Run Details")
+async def get_training_run(run_id: str):
+    """Retrieve details for a specific training run."""
+    run = training_service.repo.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run '{run_id}' not found.")
+    return run.to_dict()
+
+
+@app.post("/api/training/evaluate", summary="Evaluate Candidate Model")
+async def evaluate_candidate(req: EvaluateRunRequest):
+    """Run fixed benchmark suite on a trained candidate adapter."""
+    try:
+        res = await training_service.evaluate_candidate(
+            run_id=req.run_id,
+            adapter_path=req.adapter_path,
+            mock_eval=req.mock_eval,
+        )
+        return res
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Candidate evaluation failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/training/package", summary="Package Candidate into Ollama Modelfile")
+async def package_candidate(req: PackageRunRequest):
+    """Generate Modelfile and register candidate with Ollama."""
+    res = await training_service.package_candidate(run_id=req.run_id)
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("message"))
+    return res
+
+
+@app.post("/api/training/activate", summary="Activate Candidate Model")
+async def activate_candidate(req: ActivateRunRequest):
+    """
+    Perform pre-flight sanity checks and atomically activate the fine-tuned
+    candidate model for local routing and inference.
+    """
+    res = await training_service.activate_model(run_id=req.run_id)
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("message"))
+    return res
+
+
+@app.post("/api/training/rollback", summary="Rollback Active Model to Baseline")
+async def rollback_model(req: Optional[RollbackRunRequest] = None):
+    """Immediately rollback active routing model to base model or previous stable version."""
+    res = training_service.rollback_model()
+    return res
+
+
+# ==============================================================================
+# GOOGLE COLAB & GOOGLE DRIVE END-TO-END WORKFLOW ENDPOINTS
+# ==============================================================================
+@app.post("/api/training/colab/export", summary="Gather Data & Export Unified Unit to Google Colab / Drive")
+async def export_colab_unit(req: ColabExportRequest):
+    """
+    Gathers all interactions, behavioral preferences, and memories into one cohesive unit,
+    generates the Colab training notebook, and syncs directly to Google Drive.
+    """
+    cfg = TrainingConfig()
+    if req.base_model:
+        cfg.base_model = req.base_model
+    if req.num_epochs is not None:
+        cfg.num_epochs = req.num_epochs
+    if req.batch_size is not None:
+        cfg.batch_size = req.batch_size
+
+    try:
+        res = training_service.export_colab_unit(
+            config=cfg,
+            user_id=req.user_id,
+            sync_to_gdrive=req.sync_to_gdrive,
+        )
+        return res
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Colab export failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/training/colab/import", summary="Download and Deploy Versioned Model from Google Drive")
+async def import_colab_model(req: ColabImportRequest):
+    """
+    Retrieves the latest or specified versioned model checkpoint from Google Drive,
+    evaluates against the benchmark suite, packages into Ollama, and activates.
+    """
+    try:
+        res = await training_service.import_colab_model(
+            version_id=req.version_id,
+            auto_evaluate=req.auto_evaluate,
+            auto_activate=req.auto_activate,
+            mock_eval=req.mock_eval,
+        )
+        return res
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Colab model import failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.get("/api/training/colab/models", summary="List Available Versioned Models in Cloud & Local")
+async def list_colab_models():
+    """Lists all versioned model checkpoints in Google Drive and local SQLite registry."""
+    return training_service.list_colab_models()
+
+
+@app.get("/api/training/colab/notebook/{version_id}", summary="Download Colab Training Notebook")
+async def get_colab_notebook(version_id: str):
+    """Download the generated Jupyter/Colab notebook (.ipynb) for a specific training unit."""
+    nb_file = PROJECT_ROOT / "data" / "training" / "units" / version_id / "colab_train.ipynb"
+    if not nb_file.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Notebook for '{version_id}' not found.")
+    return FileResponse(
+        path=str(nb_file),
+        filename=f"colab_train_{version_id}.ipynb",
+        media_type="application/x-ipynb+json",
+    )
+
+
+# ------------------------------------------------------------------------------
+# Cloud PostgreSQL 15-Day Sync & 60-Day Training Pipeline Endpoints
+# ------------------------------------------------------------------------------
+class CloudSyncTriggerRequest(BaseModel):
+    user_id: str = "local_user"
+    force: bool = False
+
+
+@app.get("/api/cloud-sync/status", summary="Get 15-Day Sync & 60-Day Training Readiness Status")
+async def get_cloud_sync_status(user_id: str = "local_user"):
+    """Returns 15-day sync progress, countdown, and 60-day training readiness percentage."""
+    return training_service.get_cloud_sync_status(user_id=user_id)
+
+
+@app.post("/api/cloud-sync/trigger", summary="Trigger 15-Day Cloud Sync")
+async def trigger_cloud_sync(req: CloudSyncTriggerRequest):
+    """Executes the 15-day delta sync of sanitized profile, interests, and chat turns to PostgreSQL."""
+    try:
+        res = await training_service.sync_cloud_delta(user_id=req.user_id, force=req.force)
+        return res
+    except Exception as exc:
+        logger.error(f"Cloud sync failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/cloud-sync/prepare-train", summary="Prepare 60-Day Cumulative GPU Training Unit")
+async def prepare_cloud_training(req: CloudSyncTriggerRequest):
+    """Compiles the 60-day cumulative dataset from sync cycles into a GPU training unit."""
+    try:
+        res = training_service.prepare_60_day_training(user_id=req.user_id, force=req.force)
+        return res
+    except Exception as exc:
+        logger.error(f"Prepare 60-day training failed: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+
 

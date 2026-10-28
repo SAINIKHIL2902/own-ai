@@ -1,0 +1,99 @@
+services:
+  # ============================================================================
+  # 1. CORE APPLICATION (Pulled from Docker Hub)
+  # ============================================================================
+  app:
+    image: ${DOCKER_IMAGE:-sainikhilreddy/own-ai:latest}
+    container_name: own-ai-app
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SQLITE_DB_PATH=data/user.db
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - kafka
+      - ollama
+    restart: unless-stopped
+    networks:
+      - own-ai-net
+
+  # ============================================================================
+  # 2. LOCAL OFFLINE LLM (Ollama Engine)
+  # ============================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: own-ai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - own-ai-net
+
+  # ============================================================================
+  # 3. OLLAMA INITIALIZER (Auto-pulls llama3.2:1b on first run)
+  # ============================================================================
+  ollama-init:
+    image: curlimages/curl:latest
+    container_name: own-ai-ollama-init
+    depends_on:
+      - ollama
+    entrypoint:
+      - "sh"
+      - "-c"
+      - |
+        echo "Waiting for Ollama service..."
+        until curl -s http://ollama:11434/api/tags > /dev/null; do
+          sleep 2
+        done
+        echo "Ensuring llama3.2:1b is downloaded..."
+        curl -s http://ollama:11434/api/pull -d '{"name": "llama3.2:1b"}'
+        echo "Model initialization complete!"
+    restart: "no"
+    networks:
+      - own-ai-net
+
+  # ============================================================================
+  # 4. EVENT STREAMING BACKBONE (Apache Kafka KRaft Mode)
+  # ============================================================================
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: own-ai-kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    restart: unless-stopped
+    networks:
+      - own-ai-net
+
+volumes:
+  ollama_models:
+    driver: local
+  kafka_data:
+    driver: local
+
+networks:
+  own-ai-net:
+    driver: bridge

@@ -28,7 +28,9 @@ def test_get_models_success():
         mock_models.return_value = ["llama3.2:1b"]
         response = client.get("/models")
         assert response.status_code == 200
-        assert response.json() == {"models": ["llama3.2:1b"]}
+        data = response.json()
+        assert "llama3.2:1b" in data["models"]
+        assert "llama3.2:1b" in data["local_models"]
 
 
 def test_post_chat_success():
@@ -49,7 +51,7 @@ def test_post_chat_empty_message_validation_failure():
 def test_post_chat_ollama_not_running():
     with patch("app.main.ollama_client.generate_chat", new_callable=AsyncMock) as mock_gen:
         mock_gen.side_effect = OllamaConnectionError("Ollama is not running at http://127.0.0.1:11434")
-        response = client.post("/chat", json={"message": "Hello"})
+        response = client.post("/chat", json={"message": "Hello", "mode": "offline"})
         assert response.status_code == 503
         assert "Ollama is not running" in response.json()["detail"]
 
@@ -57,6 +59,7 @@ def test_post_chat_ollama_not_running():
 def test_post_chat_model_missing():
     with patch("app.main.ollama_client.generate_chat", new_callable=AsyncMock) as mock_gen:
         mock_gen.side_effect = OllamaModelNotFoundError("Model 'llama3.2:1b' is not installed.")
-        response = client.post("/chat", json={"message": "Hello"})
+        response = client.post("/chat", json={"message": "Hello", "mode": "offline"})
         assert response.status_code == 404
         assert "not installed" in response.json()["detail"]
+

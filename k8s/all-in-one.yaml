@@ -1,0 +1,182 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: own-ai
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: own-ai-config
+  namespace: own-ai
+data:
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+  OLLAMA_MODEL: "llama3.2:1b"
+  OLLAMA_TIMEOUT: "120"
+  SQLITE_DB_PATH: "data/user.db"
+  KAFKA_ENABLED: "false"
+  GEMINI_MODEL: "gemini-3.5-flash-lite"
+  LOCAL_MIN_SUITABILITY: "0.70"
+  LOCAL_MIN_CONFIDENCE: "0.65"
+  LOCAL_MAX_CONTEXT_CHARS: "6000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: own-ai-secrets
+  namespace: own-ai
+type: Opaque
+stringData:
+  GEMINI_API_KEY: ""
+  SUPABASE_DB_URL: ""
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: own-ai-data-pvc
+  namespace: own-ai
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: own-ai
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: own-ai
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              memory: "1.5Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "4000m"
+          volumeMounts:
+            - name: ollama-storage
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: own-ai
+spec:
+  selector:
+    app: ollama
+  ports:
+    - protocol: TCP
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: own-ai-app
+  namespace: own-ai
+  labels:
+    app: own-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: own-ai
+  template:
+    metadata:
+      labels:
+        app: own-ai
+    spec:
+      containers:
+        - name: own-ai-app
+          image: dockerhub8790974548/own-ai:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: own-ai-config
+            - secretRef:
+                name: own-ai-secrets
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1.5Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: app-data
+              mountPath: /app/data
+      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: own-ai-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: own-ai-service
+  namespace: own-ai
+  labels:
+    app: own-ai
+spec:
+  type: NodePort
+  selector:
+    app: own-ai
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+      nodePort: 30080

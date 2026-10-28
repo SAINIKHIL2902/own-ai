@@ -3,6 +3,10 @@ let chats = []; // [{ id: string, title: string, messages: [{ id, role, content,
 let currentChatId = null;
 let isGenerating = false;
 let activeModel = "llama3.2:1b";
+let currentMode = localStorage.getItem("own_ai_mode") || "auto"; // "auto", "offline", "online"
+let selectedModelOverride = localStorage.getItem("own_ai_selected_model") || "auto";
+let cachedLocalModels = ["llama3.2:1b"];
+let cachedOnlineModels = ["gemini-3.5-flash-lite"];
 
 // DOM Elements
 const sidebar = document.getElementById("sidebar");
@@ -16,6 +20,14 @@ const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 const sidebarModelBadge = document.getElementById("sidebar-model-badge");
 const topModelName = document.getElementById("top-model-name");
+
+// Mode & Model Picker Elements
+const modeBtnAuto = document.getElementById("mode-btn-auto");
+const modeBtnOffline = document.getElementById("mode-btn-offline");
+const modeBtnOnline = document.getElementById("mode-btn-online");
+const modelPickerSelect = document.getElementById("model-picker-select");
+const offlinePillDot = document.getElementById("offline-pill-dot");
+const offlinePillText = document.getElementById("offline-pill-text");
 
 const messagesViewport = document.getElementById("messages-viewport");
 const welcomeContainer = document.getElementById("welcome-container");
@@ -409,6 +421,8 @@ async function handleSendMessage() {
       body: JSON.stringify({
         conversation_id: currentChatId,
         messages: chat.messages.map((m) => ({ role: m.role, content: m.content })),
+        mode: currentMode,
+        model: selectedModelOverride !== "auto" ? selectedModelOverride : null,
       }),
     });
 
@@ -420,6 +434,9 @@ async function handleSendMessage() {
         const errJson = await response.json();
         errDetail = errJson.detail || errDetail;
       } catch (e) {}
+      if (errDetail.toLowerCase().includes("ollama is not running")) {
+        errDetail = "Local Ollama is not running. Run 'ollama serve' in your terminal or switch to '☁️ Online' mode.";
+      }
       showErrorToast(errDetail);
       chat.messages.pop();
       saveStorage();
@@ -443,8 +460,8 @@ async function handleSendMessage() {
 
     if (data.model) {
       activeModel = data.model;
-      topModelName.textContent = activeModel;
-      sidebarModelBadge.textContent = activeModel;
+      if (topModelName) topModelName.textContent = activeModel;
+      if (sidebarModelBadge) sidebarModelBadge.textContent = activeModel;
     }
   } catch (err) {
     removeThinking();
@@ -477,17 +494,118 @@ async function pollHealth() {
   }
 }
 
+function setRoutingMode(mode, triggerModelUpdate = true) {
+  currentMode = mode;
+  localStorage.setItem("own_ai_mode", mode);
+
+  // Update button active state
+  [modeBtnAuto, modeBtnOffline, modeBtnOnline].forEach((btn) => {
+    if (!btn) return;
+    if (btn.dataset.mode === mode) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+
+  // Update status pill & dropdown selection
+  if (mode === "offline") {
+    if (offlinePillDot) offlinePillDot.className = "dot-green";
+    if (offlinePillText) offlinePillText.textContent = "100% Offline";
+    if (triggerModelUpdate) {
+      const isCurrentLocal = cachedLocalModels.includes(selectedModelOverride);
+      selectedModelOverride = isCurrentLocal ? selectedModelOverride : (cachedLocalModels[0] || "llama3.2:1b");
+      if (modelPickerSelect) modelPickerSelect.value = selectedModelOverride;
+    }
+  } else if (mode === "online") {
+    if (offlinePillDot) offlinePillDot.className = "dot-blue";
+    if (offlinePillText) offlinePillText.textContent = "Gemini Online";
+    if (triggerModelUpdate) {
+      const isCurrentOnline = cachedOnlineModels.includes(selectedModelOverride);
+      selectedModelOverride = isCurrentOnline ? selectedModelOverride : (cachedOnlineModels[0] || "gemini-3.5-flash-lite");
+      if (modelPickerSelect) modelPickerSelect.value = selectedModelOverride;
+    }
+  } else {
+    // Auto mode
+    if (offlinePillDot) offlinePillDot.className = "dot-purple";
+    if (offlinePillText) offlinePillText.textContent = "Auto Hybrid";
+    if (triggerModelUpdate) {
+      selectedModelOverride = "auto";
+      if (modelPickerSelect) modelPickerSelect.value = "auto";
+    }
+  }
+
+  localStorage.setItem("own_ai_selected_model", selectedModelOverride);
+}
+
+function initModeSelectorListeners() {
+  if (modeBtnAuto) modeBtnAuto.addEventListener("click", () => setRoutingMode("auto"));
+  if (modeBtnOffline) modeBtnOffline.addEventListener("click", () => setRoutingMode("offline"));
+  if (modeBtnOnline) modeBtnOnline.addEventListener("click", () => setRoutingMode("online"));
+
+  if (modelPickerSelect) {
+    modelPickerSelect.addEventListener("change", (e) => {
+      const val = e.target.value;
+      selectedModelOverride = val;
+      localStorage.setItem("own_ai_selected_model", val);
+
+      if (val === "auto") {
+        setRoutingMode("auto", false);
+      } else if (val.toLowerCase().startsWith("gemini")) {
+        setRoutingMode("online", false);
+      } else {
+        setRoutingMode("offline", false);
+      }
+    });
+  }
+}
+
 async function loadModels() {
   try {
     const res = await fetch("/models");
     if (!res.ok) return;
     const data = await res.json();
-    if (data.models && data.models.length > 0) {
-      activeModel = data.models[0];
-      topModelName.textContent = activeModel;
-      sidebarModelBadge.textContent = activeModel;
+
+    if (data.local_models && data.local_models.length > 0) {
+      cachedLocalModels = data.local_models;
     }
-  } catch (e) {}
+    if (data.online_models && data.online_models.length > 0) {
+      cachedOnlineModels = data.online_models;
+    }
+
+    // Populate model dropdown
+    if (modelPickerSelect) {
+      const savedMode = localStorage.getItem("own_ai_mode") || "auto";
+      const savedModel = localStorage.getItem("own_ai_selected_model") || "auto";
+
+      let html = `<option value="auto">✨ Auto Router (Hybrid)</option>`;
+
+      html += `<optgroup label="💻 Offline Local Models">`;
+      cachedLocalModels.forEach((m) => {
+        html += `<option value="${escapeHtml(m)}">${escapeHtml(m)} (Local)</option>`;
+      });
+      html += `</optgroup>`;
+
+      html += `<optgroup label="☁️ Online Cloud Models">`;
+      cachedOnlineModels.forEach((m) => {
+        html += `<option value="${escapeHtml(m)}">${escapeHtml(m)} (Cloud)</option>`;
+      });
+      html += `</optgroup>`;
+
+      modelPickerSelect.innerHTML = html;
+
+      // Restore saved selection
+      selectedModelOverride = savedModel;
+      modelPickerSelect.value = savedModel;
+      setRoutingMode(savedMode, false);
+    }
+
+    if (sidebarModelBadge) {
+      sidebarModelBadge.textContent = cachedLocalModels[0] || "llama3.2:1b";
+    }
+  } catch (e) {
+    console.warn("Could not load models list:", e);
+  }
 }
 
 // Open & Populate Profile Modal
@@ -897,11 +1015,385 @@ window.addEventListener("click", (e) => {
   if (e.target === memoryModal) {
     closeMemoryModal();
   }
+  if (e.target === skillsModal) {
+    closeSkillsModal();
+  }
 });
+
+// ==============================================================================
+// USER SKILLS & EXPERTISE UI LOGIC (Local SQLite + Cloud Database Sync)
+// ==============================================================================
+const skillsModal = document.getElementById("skills-modal");
+const topSkillsBtn = document.getElementById("top-skills-btn");
+const viewSkillsBtn = document.getElementById("view-skills-btn");
+const composerSkillsBtn = document.getElementById("composer-skills-btn");
+const skillsModalCloseBtn = document.getElementById("skills-modal-close-btn");
+
+const skillCountBadge = document.getElementById("skill-count-badge");
+const skillCloudStatus = document.getElementById("skill-cloud-status");
+const tabAddSingle = document.getElementById("tab-add-single");
+const tabBulkUpload = document.getElementById("tab-bulk-upload");
+const skillsSingleView = document.getElementById("skills-single-view");
+const skillsBulkView = document.getElementById("skills-bulk-view");
+
+const newSkillName = document.getElementById("new-skill-name");
+const newSkillLevel = document.getElementById("new-skill-level");
+const newSkillCategory = document.getElementById("new-skill-category");
+const newSkillYears = document.getElementById("new-skill-years");
+const addSkillBtn = document.getElementById("add-skill-btn");
+
+const skillsDropzone = document.getElementById("skills-dropzone");
+const skillsFileInput = document.getElementById("skills-file-input");
+const bulkSkillsText = document.getElementById("bulk-skills-text");
+const bulkDefaultCategory = document.getElementById("bulk-default-category");
+const bulkDefaultLevel = document.getElementById("bulk-default-level");
+const bulkUploadBtn = document.getElementById("bulk-upload-btn");
+
+const skillsFeedbackMsg = document.getElementById("skills-feedback-msg");
+const skillsGridContainer = document.getElementById("skills-grid-container");
+const syncSkillsCloudBtn = document.getElementById("sync-skills-cloud-btn");
+const skillFooterStatus = document.getElementById("skill-footer-status");
+
+let cachedSkills = [];
+let currentSkillCategoryFilter = "all";
+
+async function openSkillsModal() {
+  if (skillsModal) {
+    skillsModal.style.display = "flex";
+    await loadSkills();
+  }
+}
+
+function closeSkillsModal() {
+  if (skillsModal) {
+    skillsModal.style.display = "none";
+  }
+}
+
+async function loadSkills() {
+  if (!skillsGridContainer) return;
+  skillsGridContainer.innerHTML = '<div class="skills-loading">Loading skills from database...</div>';
+  try {
+    const res = await fetch("/api/skills");
+    if (!res.ok) throw new Error("Failed to load skills");
+    const data = await res.json();
+    cachedSkills = data.skills || [];
+
+    if (skillCloudStatus) {
+      if (data.cloud_configured) {
+        skillCloudStatus.innerHTML = "☁️ Supabase Connected";
+        skillCloudStatus.style.display = "inline-flex";
+      } else {
+        skillCloudStatus.innerHTML = "💾 Local SQLite";
+        skillCloudStatus.style.display = "inline-flex";
+      }
+    }
+
+    renderSkillsList();
+  } catch (err) {
+    skillsGridContainer.innerHTML = `<div class="skills-empty">Error loading skills: ${err.message}</div>`;
+  }
+}
+
+function renderSkillsList() {
+  if (!skillsGridContainer) return;
+
+  let filtered = cachedSkills;
+  if (currentSkillCategoryFilter !== "all") {
+    filtered = cachedSkills.filter(
+      (s) => (s.category || "").toLowerCase() === currentSkillCategoryFilter.toLowerCase()
+    );
+  }
+
+  if (skillCountBadge) {
+    skillCountBadge.textContent = `${cachedSkills.length} ${cachedSkills.length === 1 ? "skill" : "skills"}`;
+  }
+
+  if (filtered.length === 0) {
+    skillsGridContainer.innerHTML =
+      '<div class="skills-empty">No skills found in this category. Add or upload some above!</div>';
+    return;
+  }
+
+  skillsGridContainer.innerHTML = filtered
+    .map((s) => {
+      const level = s.level || "Intermediate";
+      const levelClass = `level-${level.toLowerCase()}`;
+      const yearsText = s.years_experience && s.years_experience > 0 ? ` &bull; ${s.years_experience} yrs` : "";
+
+      return `
+      <div class="skill-card" id="skill-card-${encodeURIComponent(s.skill_name)}">
+        <div class="skill-card-main">
+          <div class="skill-card-title" title="${escapeHtml(s.skill_name)}">${escapeHtml(s.skill_name)}</div>
+          <div class="skill-card-badges">
+            <span class="skill-level-badge ${levelClass}">${level}</span>
+            <span class="skill-category-tag">${escapeHtml(s.category || "General")}${yearsText}</span>
+          </div>
+        </div>
+        <button class="skill-delete-btn" data-skill="${escapeHtml(s.skill_name)}" title="Remove skill from database">
+          🗑️
+        </button>
+      </div>
+    `;
+    })
+    .join("");
+
+  // Attach delete listeners
+  skillsGridContainer.querySelectorAll(".skill-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const skillName = btn.dataset.skill;
+      if (!confirm(`Remove "${skillName}" from your skills database?`)) return;
+      try {
+        btn.disabled = true;
+        btn.textContent = "⏳";
+        const res = await fetch(`/api/skills/${encodeURIComponent(skillName)}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Failed to delete skill");
+        const data = await res.json();
+        showSkillFeedback(`Skill "${skillName}" removed from database.`, "success");
+        await loadSkills();
+      } catch (err) {
+        showSkillFeedback(err.message, "error");
+        btn.disabled = false;
+        btn.textContent = "🗑️";
+      }
+    });
+  });
+}
+
+function showSkillFeedback(msg, type = "success") {
+  if (!skillsFeedbackMsg) return;
+  skillsFeedbackMsg.textContent = msg;
+  skillsFeedbackMsg.className = `skill-feedback-msg ${type}`;
+  setTimeout(() => {
+    if (skillsFeedbackMsg.textContent === msg) {
+      skillsFeedbackMsg.textContent = "";
+      skillsFeedbackMsg.className = "skill-feedback-msg";
+    }
+  }, 4500);
+}
+
+// Subtab toggling
+if (tabAddSingle && tabBulkUpload) {
+  tabAddSingle.addEventListener("click", () => {
+    tabAddSingle.classList.add("active");
+    tabBulkUpload.classList.remove("active");
+    skillsSingleView.style.display = "block";
+    skillsBulkView.style.display = "none";
+  });
+
+  tabBulkUpload.addEventListener("click", () => {
+    tabBulkUpload.classList.add("active");
+    tabAddSingle.classList.remove("active");
+    skillsSingleView.style.display = "none";
+    skillsBulkView.style.display = "block";
+  });
+}
+
+// Single skill addition
+if (addSkillBtn) {
+  addSkillBtn.addEventListener("click", async () => {
+    const name = newSkillName.value.trim();
+    if (!name) {
+      showSkillFeedback("Please enter a skill name.", "error");
+      newSkillName.focus();
+      return;
+    }
+
+    addSkillBtn.disabled = true;
+    addSkillBtn.textContent = "Saving to Database...";
+
+    try {
+      const res = await fetch("/api/skills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skill_name: name,
+          level: newSkillLevel.value,
+          category: newSkillCategory.value,
+          years_experience: parseFloat(newSkillYears.value || 0),
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save skill");
+      const data = await res.json();
+
+      newSkillName.value = "";
+      newSkillYears.value = "";
+
+      const cloudStatusText = data.cloud_synced ? " & Synced to Supabase Cloud" : "";
+      showSkillFeedback(`✅ Saved "${name}" to database${cloudStatusText}!`, "success");
+      await loadSkills();
+    } catch (err) {
+      showSkillFeedback(err.message, "error");
+    } finally {
+      addSkillBtn.disabled = false;
+      addSkillBtn.textContent = "+ Save Skill to Database";
+    }
+  });
+}
+
+// Dropzone & File Upload
+if (skillsDropzone && skillsFileInput) {
+  skillsDropzone.addEventListener("click", () => skillsFileInput.click());
+
+  skillsDropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    skillsDropzone.classList.add("dragover");
+  });
+
+  skillsDropzone.addEventListener("dragleave", () => {
+    skillsDropzone.classList.remove("dragover");
+  });
+
+  skillsDropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    skillsDropzone.classList.remove("dragover");
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleSkillsFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  skillsFileInput.addEventListener("change", () => {
+    if (skillsFileInput.files && skillsFileInput.files.length > 0) {
+      handleSkillsFile(skillsFileInput.files[0]);
+    }
+  });
+}
+
+function handleSkillsFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result;
+    try {
+      // Try JSON first
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        bulkUploadSkillsArray(parsed);
+        return;
+      }
+    } catch (err) {
+      // Not JSON, populate textarea
+    }
+    bulkSkillsText.value = text;
+    showSkillFeedback(`Loaded file "${file.name}". Click "Upload & Update Database" to save.`, "success");
+  };
+  reader.readAsText(file);
+}
+
+async function bulkUploadSkillsArray(skillsArray) {
+  if (bulkUploadBtn) {
+    bulkUploadBtn.disabled = true;
+    bulkUploadBtn.textContent = "Uploading to Database...";
+  }
+  try {
+    const res = await fetch("/api/skills/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skills: skillsArray }),
+    });
+    if (!res.ok) throw new Error("Bulk upload failed");
+    const data = await res.json();
+    showSkillFeedback(`✅ Imported ${data.imported_count} skills to database!`, "success");
+    await loadSkills();
+  } catch (err) {
+    showSkillFeedback(err.message, "error");
+  } finally {
+    if (bulkUploadBtn) {
+      bulkUploadBtn.disabled = false;
+      bulkUploadBtn.textContent = "⚡ Upload & Update Database";
+    }
+  }
+}
+
+// Bulk text upload
+if (bulkUploadBtn) {
+  bulkUploadBtn.addEventListener("click", async () => {
+    const text = bulkSkillsText.value.trim();
+    if (!text) {
+      showSkillFeedback("Please paste or upload skills first.", "error");
+      bulkSkillsText.focus();
+      return;
+    }
+
+    bulkUploadBtn.disabled = true;
+    bulkUploadBtn.textContent = "Uploading to Database...";
+
+    try {
+      const res = await fetch("/api/skills/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          raw_text: text,
+          default_category: bulkDefaultCategory.value,
+          default_level: bulkDefaultLevel.value,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Bulk upload failed");
+      const data = await res.json();
+
+      bulkSkillsText.value = "";
+      const cloudStatusText = data.cloud_synced ? " & Synced to Supabase Cloud" : "";
+      showSkillFeedback(`✅ Successfully imported ${data.imported_count} skills to database${cloudStatusText}!`, "success");
+      await loadSkills();
+    } catch (err) {
+      showSkillFeedback(err.message, "error");
+    } finally {
+      bulkUploadBtn.disabled = false;
+      bulkUploadBtn.textContent = "⚡ Upload & Update Database";
+    }
+  });
+}
+
+// Category filter tabs
+document.querySelectorAll(".skill-filter-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".skill-filter-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    currentSkillCategoryFilter = tab.dataset.category;
+    renderSkillsList();
+  });
+});
+
+// Manual Supabase cloud sync button
+if (syncSkillsCloudBtn) {
+  syncSkillsCloudBtn.addEventListener("click", async () => {
+    syncSkillsCloudBtn.disabled = true;
+    syncSkillsCloudBtn.textContent = "⏳ Syncing to Supabase...";
+    skillFooterStatus.textContent = "";
+
+    try {
+      const res = await fetch("/api/skills/sync-cloud", { method: "POST" });
+      const data = await res.json();
+      if (data.cloud_synced) {
+        skillFooterStatus.textContent = `✅ Successfully synced ${data.skills_count} skills to Supabase!`;
+        skillFooterStatus.style.color = "#34d399";
+      } else {
+        skillFooterStatus.textContent = `⚠️ Cloud sync: ${data.message}`;
+        skillFooterStatus.style.color = "#fbbf24";
+      }
+    } catch (err) {
+      skillFooterStatus.textContent = `Error: ${err.message}`;
+      skillFooterStatus.style.color = "#f87171";
+    } finally {
+      syncSkillsCloudBtn.disabled = false;
+      syncSkillsCloudBtn.textContent = "☁️ Sync All Skills to Supabase";
+    }
+  });
+}
+
+// Modal open triggers
+if (topSkillsBtn) topSkillsBtn.addEventListener("click", openSkillsModal);
+if (viewSkillsBtn) viewSkillsBtn.addEventListener("click", openSkillsModal);
+if (composerSkillsBtn) composerSkillsBtn.addEventListener("click", openSkillsModal);
+if (skillsModalCloseBtn) skillsModalCloseBtn.addEventListener("click", closeSkillsModal);
 
 // Init
 initStorage();
+initModeSelectorListeners();
 pollHealth();
 loadModels();
 setInterval(pollHealth, 10000);
+
 

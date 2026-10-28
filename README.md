@@ -362,3 +362,133 @@ ChatService
 - **Filter Tabs**: Instant filtering across memory types.
 - **Card Controls**: Live in-place edit and soft archive/deletion.
 
+---
+
+## Phase 5: Behavior-Based Model Training & Cloud GPU Pipeline
+
+Phase 5 introduces privacy-first model customization: extracting behavioral patterns, formatting reproducible datasets, preparing cloud training bundles for free GPUs (Google Colab T4 / Kaggle), evaluating candidates against a fixed benchmark, and controlled 1-click activation/rollback into the local Ollama runtime.
+
+### 1. Architecture & Lifecycle
+
+```
+Local SQLite Interactions & Feedback
+                 │
+                 ▼
+        User Training Consent Check (Opt-In Required)
+                 │
+                 ▼
+    ConsentAwareExtractor & TrainingSanitizer
+    ├── Secret/Credential Exclusion (Zero API keys, private keys, tokens)
+    ├── Quality Filtering (Exclude thumbs_down & ratings <= 2)
+    └── PII Redaction ([EMAIL_REDACTED], [PHONE_REDACTED])
+                 │
+                 ▼
+          DatasetBuilder
+    ├── ChatML JSONL Generation (train.jsonl, val.jsonl)
+    └── SHA-256 Content Deduplication & Provenance Manifest
+                 │
+                 ▼
+          TrainingRunner
+    └── Exports Cloud GPU Bundle (`cloud_bundle_<run_id>.zip`)
+                 │
+                 ▼
+   ┌──────────────────────────────────────────────┐
+   │ Cloud Training (Google Colab / Kaggle Free)  │
+   │ - Hardware: NVIDIA T4 / A100 GPU             │
+   │ - Method: Hugging Face PEFT LoRA Fine-Tuning │
+   │ - Output: `trained_adapter` weights          │
+   └──────────────────────────────────────────────┘
+                 │
+                 ▼
+          ModelEvaluator (Fixed Benchmark Suite)
+    ├── Instruction Following, Code Style, Explanation Style, Privacy
+    └── Minimum Accuracy Threshold: >= 75%
+                 │
+                 ▼
+          OllamaPackager
+    └── Generates versioned `Modelfile` & imports to Ollama daemon
+                 │
+                 ▼
+       ModelDeploymentManager
+    ├── Pre-flight Health & Smoke Test Verification
+    ├── Atomically Activates Candidate Model for Local Routing
+    └── 1-Click Rollback to Baseline (`llama3.2:1b`)
+```
+
+### 2. Unified Google Colab & Google Drive Workflow
+
+For zero-friction cloud GPU fine-tuning without manual zip handling:
+
+1. **One-Command Unified Gathering & Google Drive Sync**:
+   ```bash
+   python -m app.training.cli export-colab --epochs 3
+   ```
+   - Automatically gathers chat turns, behavioral profile, and active memories into **one cohesive unit**.
+   - Generates the interactive `colab_train.ipynb` notebook.
+   - Automatically syncs to Google Drive under `own-ai/datasets/<version_id>/`.
+
+2. **Train on Google Colab (1-Click Run)**:
+   - Open the generated `colab_train.ipynb` in Google Colab (Runtime -> T4 GPU).
+   - Click **Runtime -> Run all**:
+     1. Mounts Google Drive (`/content/drive/MyDrive/own-ai/datasets/<version_id>/`).
+     2. Runs PEFT LoRA training on the T4 GPU.
+     3. Saves the completed model adapter and version metadata directly back to Google Drive (`own-ai/models/<version_id>/`).
+
+3. **One-Command Model Download, Packaging & Activation**:
+   ```bash
+   python -m app.training.cli download-model
+   ```
+   - Discovers the latest versioned model in Google Drive.
+   - Downloads and unpacks the weights with its unique version ID.
+   - Evaluates against the fixed benchmark suite.
+   - Generates the Ollama `Modelfile` and imports it into Ollama.
+   - Atomically activates the fine-tuned candidate model for local routing.
+
+### 3. Training CLI Reference
+
+All Phase 5 pipeline stages can be inspected and triggered via the CLI utility:
+
+```bash
+# Check current pipeline status, active model, and consent
+python -m app.training.cli status
+
+# Manage user training consent (opt-in / opt-out)
+python -m app.training.cli consent --opt-in
+python -m app.training.cli consent --opt-out
+
+# One-command unified gathering and Google Drive sync for Colab
+python -m app.training.cli export-colab --epochs 3
+
+# One-command download, evaluation, packaging, and activation from Google Drive
+python -m app.training.cli download-model
+
+# Download a specific version ID
+python -m app.training.cli download-model --version <version_id>
+
+# List all versioned models available in Google Drive and local registry
+python -m app.training.cli list-models
+
+# Immediate rollback to baseline default (llama3.2:1b)
+python -m app.training.cli rollback
+```
+
+### 4. Phase 5 REST API
+
+- `POST /api/training/colab/export`: Gather all data into one unit, generate Colab notebook, and sync directly to Google Drive.
+- `POST /api/training/colab/import`: Download versioned model from Google Drive, evaluate, package with Ollama, and activate.
+- `GET /api/training/colab/models`: List available versioned models in Google Drive and local registry.
+- `GET /api/training/colab/notebook/{version_id}`: Download the generated Colab notebook (.ipynb).
+- `GET /api/training/status`: Get active model, consent status, and recent runs.
+- `GET /api/training/consent`: Check consent status.
+- `POST /api/training/consent`: Opt-in or opt-out of training data collection.
+- `POST /api/training/dataset`: Build curated, sanitized JSONL dataset.
+- `POST /api/training/runs`: Create training run and generate `.zip` cloud bundle.
+- `GET /api/training/runs`: List all registered runs.
+- `GET /api/training/runs/{run_id}`: Get details for a specific run.
+- `POST /api/training/evaluate`: Evaluate candidate against benchmark suite.
+- `POST /api/training/package`: Generate Modelfile and register with Ollama.
+- `POST /api/training/activate`: Perform pre-flight check and activate candidate model.
+- `POST /api/training/rollback`: Rollback active model to base `llama3.2:1b`.
+
+
+
