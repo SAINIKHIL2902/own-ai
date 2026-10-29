@@ -42,6 +42,15 @@ spec:
         - name: ollama
           image: ollama/ollama:latest
           imagePullPolicy: IfNotPresent
+          env:
+            - name: OLLAMA_KEEP_ALIVE
+              value: "24h"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "2048"
+            - name: LLAMA_ARG_FIT
+              value: "off"
           ports:
             - containerPort: 11434
               name: http
@@ -50,8 +59,8 @@ spec:
               memory: "256Mi"
               cpu: "100m"
             limits:
-              memory: "2Gi"
-              cpu: "1500m"
+              memory: "3Gi"
+              cpu: "2000m"
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama
